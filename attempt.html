@@ -1,279 +1,480 @@
 <!DOCTYPE html>
 <html>
+
 <head>
-<meta charset="UTF-8">
-<script src="https://unpkg.com/gojs/release/go.js"></script>
-<script src="ScrollingTable.js"></script>
+    <meta charset="UTF-8">
+    <script src="https://unpkg.com/gojs/release/go.js"></script>
+    <script src="ScrollingTable.js"></script>
 </head>
 
 <body>
 
-<div id="myDiagramDiv" style="width:100%;height:700px;border:1px solid black;"></div>
+    <div id="myDiagramDiv" style="width:100%;height:700px;border:1px solid black;"></div>
+
+    <script>
+
+        const $ = go.GraphObject.make;
+
+        const BUFFER = 20;
+
+        const diagram =
+            $(go.Diagram, "myDiagramDiv",
+                {
+                    "undoManager.isEnabled": true,
+                    layout: $(go.GridLayout, { cellSize: new go.Size(2, 2), spacing: new go.Size(100, 100) })
+                });
+
+        /* ---------------- DYNAMIC VIEWPORT HELPER ---------------- */
+        function getViewportMetrics(node) {
+            const table = node.findObject("TABLE");
+            const bar = node.findObject("SCROLLBAR");
+            if(!bar || !table) return { capacity: 60, windowSize: 60 + BUFFER * 2 }; // fallback
+            
+            let rowHeight = 25; 
+            if (table.elements.count > 0) {
+                rowHeight = table.elt(0).actualBounds.height || 25;
+            }
+            
+            const availH = bar.actualBounds.height || 200;
+            // Subtracting 3 from the floor ensures that the "scroll limit" doesn't stop
+            // just short of the last few items due to rounding/padding/borders.
+            const capacity = Math.max(1, Math.floor(availH / Math.max(1, rowHeight)) - 3);
+            return {
+                capacity: capacity, // How many rows physically fit
+                windowSize: capacity + BUFFER * 2 // How many rows to render
+            };
+        }
+
+        /* ---------------- NODE TEMPLATE ---------------- */
+
+        diagram.nodeTemplate =
+            $(go.Node, "Auto",
+                {
+                    resizable: true,
+                    resizeObjectName: "SCROLLER"
+                },
+
+                $(go.Shape, "Rectangle", { fill: "#f4f4f4", stroke: "#ccc", strokeWidth: 1 }),
+
+                $(go.Panel, "Vertical",
 
-<script>
+                    // HEADER
+                    $(go.Panel, "Horizontal",
+                        {
+                            stretch: go.Stretch.Horizontal,
+                            background: "#e8e8e8",
+                            padding: new go.Margin(5, 10, 5, 10)
+                        },
 
-const $ = go.GraphObject.make;
+                        // Title
+                        $(go.TextBlock,
+                            { font: "bold 13px sans-serif", stroke: "#333" },
+                            new go.Binding("text", "key")
+                        )
+                    ),
 
-const VISIBLE_ROWS = 60;
-const BUFFER = 100;
-const WINDOW_SIZE = VISIBLE_ROWS + BUFFER*2;
+                    // BORDER SEPARATOR
+                    $(go.Shape, "LineH", { height: 1, stretch: go.Stretch.Horizontal, stroke: "#ccc" }),
 
-const diagram =
-$(go.Diagram,"myDiagramDiv",
-{ "undoManager.isEnabled":true });
+                    // SCROLLING TABLE
+                    $("ScrollingTable",
+                        {
+                            name: "SCROLLER",
+                            desiredSize: new go.Size(260, 250),
+                            stretch: go.Stretch.Fill
+                        },
 
-/* ---------------- NODE TEMPLATE ---------------- */
+                        new go.Binding("TABLE.itemArray", "visibleItems"),
 
-diagram.nodeTemplate =
-$(go.Node,"Vertical",
+                        {
+                            "TABLE.itemTemplate":
 
-$(go.TextBlock,
-{font:"bold 15px sans-serif", margin:5},
-new go.Binding("text","key")
-),
+                                $(go.Panel, "TableRow",
+                                    {
+                                        defaultStretch: go.Stretch.Horizontal,
+                                        fromSpot: go.Spot.Right,
+                                        toSpot: go.Spot.Left,
+                                        fromLinkable: true,
+                                        toLinkable: true,
+                                        background: "transparent"
+                                    },
 
-$(go.Panel,"Auto",
+                                    new go.Binding("portId", "name"),
 
-$(go.Shape,{fill:"white",stroke:"#999"}),
+                                    $(go.Panel, "Horizontal",
+                                        { column: 0, margin: new go.Margin(4, 5, 4, 10) },
 
-$("ScrollingTable",
-{
-name:"SCROLLER",
-desiredSize:new go.Size(260,200)
-},
+                                        // Attribute Name
+                                        $(go.TextBlock,
+                                            { font: "12px sans-serif", stroke: "#222", alignment: go.Spot.Center },
+                                            new go.Binding("text", "name")
+                                        )
+                                    )
+                                )
+                        }
 
-new go.Binding("TABLE.itemArray","visibleItems"),
+                    )
 
-{
-"TABLE.itemTemplate":
+                )
 
-$(go.Panel,"TableRow",
-{
-defaultStretch:go.Stretch.Horizontal,
-fromSpot:go.Spot.Right,
-toSpot:go.Spot.Left,
-fromLinkable:true,
-toLinkable:true
-},
+            );
 
-new go.Binding("portId","name"),
+        /* ---------------- LINK TEMPLATE ---------------- */
 
-$(go.TextBlock,
-{column:0, margin:3, width:160},
-new go.Binding("text","name")
-),
+        diagram.linkTemplate =
+            $(go.Link,
+                {
+                    routing: go.Link.AvoidsNodes,
+                    corner: 4
+                },
 
-$(go.TextBlock,
-{column:1, margin:3, stroke:"#555"},
-new go.Binding("text","value")
-)
+                $(go.Shape, { strokeWidth: 1, stroke: "#999" }),
+                $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#999" })
 
-)
-}
+            );
 
-)
+        /* ---------------- ATTRIBUTE GENERATOR ---------------- */
 
-)
+        function generateAttributes(prefix, count) {
 
-);
+            const types = ["int", "varchar", "datetime", "decimal", "boolean"];
 
-/* ---------------- LINK TEMPLATE ---------------- */
+            let arr = [];
 
-diagram.linkTemplate =
-$(go.Link,
-{
-routing: go.Link.AvoidsNodes,
-corner: 4
-},
+            for (let i = 1; i <= count; i++) {
 
-$(go.Shape,{ strokeWidth:2 }),
-$(go.Shape,{ toArrow:"Standard" })
+                arr.push({
+                    name: prefix + "_col_" + i,
+                    value: types[i % types.length]
+                });
 
-);
+            }
 
-/* ---------------- ATTRIBUTE GENERATOR ---------------- */
+            return arr;
 
-function generateAttributes(prefix,count){
+        }
 
-const types = ["int","varchar","datetime","decimal","boolean"];
+        /* ---------------- LINKED ATTRIBUTE SET ---------------- */
 
-let arr=[];
+        function buildLinkedSet(nodeKey) {
 
-for(let i=1;i<=count;i++){
+            const set = new Set();
 
-arr.push({
-name:prefix+"_col_"+i,
-value:types[i%types.length]
-});
+            diagram.model.linkDataArray.forEach(link => {
 
-}
+                if (link.from === nodeKey) set.add(link.fromPort);
+                if (link.to === nodeKey) set.add(link.toPort);
 
-return arr;
+            });
 
-}
+            return set;
 
-/* ---------------- LINKED ATTRIBUTE SET ---------------- */
+        }
 
-function buildLinkedSet(nodeKey){
+        /* ---------------- VIRTUAL WINDOW ---------------- */
 
-const set = new Set();
+        function updateWindow(node, centerIndex) {
+            
+            const nodeData = node.data;
 
-diagram.model.linkDataArray.forEach(link=>{
+            const full = nodeData.fullItems;
+            
+            const metrics = getViewportMetrics(node);
+            const windowSize = metrics.windowSize;
 
-if(link.from===nodeKey) set.add(link.fromPort);
-if(link.to===nodeKey) set.add(link.toPort);
+            let start = centerIndex - BUFFER;
+            start = Math.max(0, start);
 
-});
+            let end = start + windowSize;
+            end = Math.min(full.length, end);
 
-return set;
+            const visibleMap = new Map();
 
-}
+            /* add scroll window */
 
-/* ---------------- VIRTUAL WINDOW ---------------- */
+            for (let i = start; i < end; i++) {
+                visibleMap.set(full[i].name, full[i]);
+            }
 
-function updateWindow(nodeData,centerIndex){
+            /* add linked attributes */
 
-const full=nodeData.fullItems;
+            nodeData.linkedAttrs.forEach(name => {
 
-let start=centerIndex-BUFFER;
-start=Math.max(0,start);
+                const idx = parseInt(name.split("_").pop()) - 1;
 
-let end=start+WINDOW_SIZE;
-end=Math.min(full.length,end);
+                if (idx >= 0 && idx < full.length) {
+                    visibleMap.set(name, full[idx]);
+                }
 
-const visibleMap = new Map();
+            });
 
-/* add scroll window */
+            /* sort by attribute index */
 
-for(let i=start;i<end;i++){
-visibleMap.set(full[i].name,full[i]);
-}
+            const sorted = Array.from(visibleMap.values()).sort((a, b) => {
 
-/* add linked attributes */
+                const ai = parseInt(a.name.split("_").pop());
+                const bi = parseInt(b.name.split("_").pop());
 
-nodeData.linkedAttrs.forEach(name=>{
+                return ai - bi;
 
-const idx=parseInt(name.split("_").pop())-1;
+            });
 
-if(idx>=0 && idx<full.length){
-visibleMap.set(name,full[idx]);
-}
+            nodeData.startIndex = start;
+            nodeData.visibleItems = sorted;
 
-});
+        }
 
-/* sort by attribute index */
+        /* ---------------- SCROLL HANDLER ---------------- */
 
-const sorted = Array.from(visibleMap.values()).sort((a,b)=>{
+        // Override the scrollbar updating function globally if needed,,
+        // but it is simpler to just update the thumb height and position manually after native scroll
+        function updateVirtualScrollBar(node) {
+            const data = node.data;
+            const table = node.findObject("TABLE");
+            const bar = node.findObject("SCROLLBAR");
+            const thumb = node.findObject("THUMB");
+            if (!table || !bar || !thumb) return;
 
-const ai=parseInt(a.name.split("_").pop());
-const bi=parseInt(b.name.split("_").pop());
+            const fullLength = data.fullItems ? data.fullItems.length : 0;
+            if (fullLength === 0) return;
 
-return ai-bi;
+            // The current absolute top index of the viewport
+            const metrics = getViewportMetrics(node);
+            const globalTopIndex = data.startIndex + table.topIndex;
 
-});
+            // Prevent scrolling below the actual data size
+            const maxGlobalTopIndex = Math.max(0, fullLength - metrics.capacity);
+            const constrainedTopIndex = Math.min(globalTopIndex, maxGlobalTopIndex);
 
-nodeData.startIndex=start;
-nodeData.visibleItems=sorted;
+            // Calculate percentage
+            let percentage = 0;
+            if (maxGlobalTopIndex > 0) {
+                percentage = constrainedTopIndex / maxGlobalTopIndex;
+            }
 
-}
+            // Height calculation - ratio of visible rows to total rows
+            const availH = bar.actualBounds.height;
+            const ratio = Math.min(1, metrics.capacity / fullLength);
+            const thumbH = Math.max(15, ratio * availH); // min height of 15
 
-/* ---------------- SCROLL HANDLER ---------------- */
+            thumb.height = thumbH;
 
-diagram.toolManager.doMouseWheel=function(){
+            // Alignment calculation
+            thumb.alignment = new go.Spot(0.5, percentage, 0, 0);
+        }
 
-const e=diagram.lastInput;
+        diagram.toolManager.doMouseWheel = function () {
 
-const node=diagram.findPartAt(e.documentPoint);
-if(!node) return;
+            const e = diagram.lastInput;
 
-const data=node.data;
+            const node = diagram.findPartAt(e.documentPoint);
+            if (!node) return;
 
-const table=node.findObject("TABLE");
-if(!table) return;
+            const data = node.data;
 
-const panel=table.panel;
+            const table = node.findObject("TABLE");
+            if (!table) return;
 
-/* normal scroll */
+            const panel = table.panel;
 
-if(panel && panel._scrollTable){
+            /* normal scroll */
 
-if(e.delta>0)
-panel._scrollTable(table,-1);
-else
-panel._scrollTable(table,1);
+            if (panel && panel._scrollTable) {
 
-panel._updateScrollBar(table);
+                if (e.delta > 0)
+                    panel._scrollTable(table, -1);
+                else
+                    panel._scrollTable(table, 1);
 
-}
+                // Call our custom scrollbar updater INSTEAD of the native one
+                // panel._updateScrollBar(table); 
+                updateVirtualScrollBar(node);
+            }
 
-const globalIndex=data.startIndex+table.topIndex;
+            const globalIndex = data.startIndex + table.topIndex;
 
-diagram.model.startTransaction("scroll");
+            diagram.model.startTransaction("scroll");
 
-updateWindow(data,globalIndex);
+            // Stop scrolling past the end
+            const metrics = getViewportMetrics(node);
+            const maxGlobalTopIndex = Math.max(0, data.fullItems.length - metrics.capacity);
+            const constrainedIndex = Math.min(globalIndex, maxGlobalTopIndex);
 
-diagram.model.updateTargetBindings(data);
+            updateWindow(node, constrainedIndex);
 
-diagram.model.commitTransaction("scroll");
+            diagram.model.updateTargetBindings(data);
 
-/* restore position */
+            diagram.model.commitTransaction("scroll");
 
-table.topIndex=Math.max(0,globalIndex-data.startIndex);
+            /* restore position */
 
-};
+            table.topIndex = Math.max(0, constrainedIndex - data.startIndex);
 
-/* ---------------- MODEL ---------------- */
+            // Ensure scrollbar is correct after transaction
+            updateVirtualScrollBar(node);
+            node.invalidateConnectedLinks();
 
-const nodeDataArray=[
+        };
 
-{
-key:"Customers",
-fullItems:generateAttributes("customer",3000),
-visibleItems:[],
-startIndex:0
-},
+        /* Initial evaluation for scrollbar geometry */
+        diagram.addDiagramListener("InitialLayoutCompleted", e => {
+            diagram.nodes.each(node => {
+                if (node.data.fullItems) {
+                    updateVirtualScrollBar(node);
 
-{
-key:"Orders",
-fullItems:generateAttributes("order",3000),
-visibleItems:[],
-startIndex:0
-}
+                    // Override thumb dragging logic
+                    const table = node.findObject("TABLE");
+                    const thumb = node.findObject("THUMB");
+                    const bar = node.findObject("SCROLLBAR");
 
-];
+                    if (thumb && bar && table) {
+                        thumb.actionMove = (ev, thb) => {
+                            const local = bar.getLocalPoint(ev.documentPoint);
+                            const availH = bar.actualBounds.height;
+                            const thumbH = thb.actualBounds.height || 15;
 
-diagram.model=new go.GraphLinksModel({
+                            let thumbTop = local.y - (thumbH / 2);
+                            thumbTop = Math.max(0, Math.min(availH - thumbH, thumbTop));
 
-linkFromPortIdProperty:"fromPort",
-linkToPortIdProperty:"toPort",
+                            let percentage = 0;
+                            if (availH - thumbH > 0) percentage = thumbTop / (availH - thumbH);
 
-nodeDataArray:nodeDataArray,
+                            const metrics = getViewportMetrics(node);
+                            const maxGlobalTopIndex = Math.max(0, node.data.fullItems.length - metrics.capacity);
+                            const targetGlobalIndex = Math.round(percentage * maxGlobalTopIndex);
 
-linkDataArray:[
+                            // Direct mapping
+                            diagram.model.startTransaction("thumb drag");
+                            updateWindow(node, targetGlobalIndex);
+                            diagram.model.updateTargetBindings(node.data);
+                            diagram.model.commitTransaction("thumb drag");
 
-{from:"Customers",fromPort:"customer_col_1",to:"Orders",toPort:"order_col_2"},
-{from:"Customers",fromPort:"customer_col_20",to:"Orders",toPort:"order_col_50"},
-{from:"Customers",fromPort:"customer_col_200",to:"Orders",toPort:"order_col_210"},
-{from:"Customers",fromPort:"customer_col_500",to:"Orders",toPort:"order_col_700"},
-{from:"Customers",fromPort:"customer_col_1200",to:"Orders",toPort:"order_col_1400"}
+                            table.topIndex = Math.max(0, targetGlobalIndex - node.data.startIndex);
+                            updateVirtualScrollBar(node);
+                            node.invalidateConnectedLinks();
+                        };
+                    }
 
-]
+                    // Override bar clicking logic
+                    if (bar && table) {
+                        bar.click = (ev, br) => {
+                            ev.handled = true;
+                            const local = br.getLocalPoint(ev.documentPoint);
+                            const availH = br.actualBounds.height;
+                            const thumbH = thumb ? thumb.actualBounds.height : 15;
 
-});
+                            let thumbTop = local.y - (thumbH / 2);
+                            thumbTop = Math.max(0, Math.min(availH - thumbH, thumbTop));
 
-/* build linked sets */
+                            let percentage = 0;
+                            if (availH - thumbH > 0) percentage = thumbTop / (availH - thumbH);
 
-nodeDataArray.forEach(n=>{
-n.linkedAttrs=buildLinkedSet(n.key);
-});
+                            const metrics = getViewportMetrics(node);
+                            const maxGlobalTopIndex = Math.max(0, node.data.fullItems.length - metrics.capacity);
+                            const targetGlobalIndex = Math.round(percentage * maxGlobalTopIndex);
 
-/* initial window */
+                            diagram.model.startTransaction("bar click");
+                            updateWindow(node, targetGlobalIndex);
+                            diagram.model.updateTargetBindings(node.data);
+                            diagram.model.commitTransaction("bar click");
 
-nodeDataArray.forEach(n=>updateWindow(n,0));
+                            table.topIndex = Math.max(0, targetGlobalIndex - node.data.startIndex);
+                            updateVirtualScrollBar(node);
+                            node.invalidateConnectedLinks();
+                        };
+                    }
+                }
+            });
+        });
 
-diagram.model.updateTargetBindings();
 
-</script>
+        /* ---------------- MODEL ---------------- */
+
+        const linkDataArray = [
+
+            { from: "Customers", fromPort: "customer_col_1", to: "Orders", toPort: "order_col_2" },
+            { from: "Customers", fromPort: "customer_col_20", to: "Orders", toPort: "order_col_50" },
+            { from: "Customers", fromPort: "customer_col_200", to: "Orders", toPort: "order_col_210" },
+            { from: "Customers", fromPort: "customer_col_500", to: "Orders", toPort: "order_col_700" },
+            { from: "Customers", fromPort: "customer_col_1200", to: "Orders", toPort: "order_col_1400" }
+
+        ];
+
+        /* build linked sets */
+        function buildLinkedSet(nodeKey) {
+            const set = new Set();
+            linkDataArray.forEach(link => {
+                if (link.from === nodeKey) set.add(link.fromPort);
+                if (link.to === nodeKey) set.add(link.toPort);
+            });
+            return set;
+        }
+
+        const nodeDataArray = [
+
+            {
+                key: "Customers",
+                fullItems: generateAttributes("customer", 3000),
+                visibleItems: [],
+                startIndex: 0
+            },
+
+            {
+                key: "Orders",
+                fullItems: generateAttributes("order", 3000),
+                visibleItems: [],
+                startIndex: 0
+            }
+
+        ];
+
+        // Initialize with default fallback size so they aren't completely blank
+        // before the diagram layout finishes
+        nodeDataArray.forEach(n => {
+            n.linkedAttrs = buildLinkedSet(n.key);
+            
+            // Initial render window
+            const full = n.fullItems;
+            let count = Math.min(full.length, 60);
+            
+            const visibleMap = new Map();
+            for (let i = 0; i < count; i++) visibleMap.set(full[i].name, full[i]);
+            
+            n.linkedAttrs.forEach(name => {
+                const idx = parseInt(name.split("_").pop()) - 1;
+                if (idx >= 0 && idx < full.length) visibleMap.set(name, full[idx]);
+            });
+            
+            const sorted = Array.from(visibleMap.values()).sort((a, b) => {
+                return parseInt(a.name.split("_").pop()) - parseInt(b.name.split("_").pop());
+            });
+            
+            n.startIndex = 0;
+            n.visibleItems = sorted;
+        });
+
+        diagram.model = new go.GraphLinksModel({
+            linkFromPortIdProperty: "fromPort",
+            linkToPortIdProperty: "toPort",
+            nodeDataArray: nodeDataArray,
+            linkDataArray: linkDataArray
+        });
+
+        // Need to run this in a listener later because we need access to the Node GraphObject
+        // to dynamically measure heights and fix the window boundaries precisely.
+        diagram.addDiagramListener("InitialLayoutCompleted", e => {
+            diagram.nodes.each(node => {
+                if (node.data.fullItems) {
+                    // Force the dynamic update once physical bounds are known
+                    updateWindow(node, 0);
+                    updateVirtualScrollBar(node);
+                }
+            });
+            diagram.model.updateTargetBindings();
+        });
+
+    </script>
 
 </body>
+
 </html>
