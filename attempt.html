@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<script src="https://unpkg.com/gojs/release/go.js"></script>
+<script src="ScrollingTable.js"></script>
+</head>
+
+<body>
+
+<div id="myDiagramDiv" style="width:100%;height:700px;border:1px solid black;"></div>
+
+<script>
+
+const $ = go.GraphObject.make;
+
+const VISIBLE_ROWS = 60;
+const BUFFER = 100;
+const WINDOW_SIZE = VISIBLE_ROWS + BUFFER*2;
+
+const diagram =
+$(go.Diagram,"myDiagramDiv",
+{ "undoManager.isEnabled":true });
+
+/* ---------------- NODE TEMPLATE ---------------- */
+
+diagram.nodeTemplate =
+$(go.Node,"Vertical",
+
+$(go.TextBlock,
+{font:"bold 15px sans-serif", margin:5},
+new go.Binding("text","key")
+),
+
+$(go.Panel,"Auto",
+
+$(go.Shape,{fill:"white",stroke:"#999"}),
+
+$("ScrollingTable",
+{
+name:"SCROLLER",
+desiredSize:new go.Size(260,200)
+},
+
+new go.Binding("TABLE.itemArray","visibleItems"),
+
+{
+"TABLE.itemTemplate":
+
+$(go.Panel,"TableRow",
+{
+defaultStretch:go.Stretch.Horizontal,
+fromSpot:go.Spot.Right,
+toSpot:go.Spot.Left,
+fromLinkable:true,
+toLinkable:true
+},
+
+new go.Binding("portId","name"),
+
+$(go.TextBlock,
+{column:0, margin:3, width:160},
+new go.Binding("text","name")
+),
+
+$(go.TextBlock,
+{column:1, margin:3, stroke:"#555"},
+new go.Binding("text","value")
+)
+
+)
+}
+
+)
+
+)
+
+);
+
+/* ---------------- LINK TEMPLATE ---------------- */
+
+diagram.linkTemplate =
+$(go.Link,
+{
+routing: go.Link.AvoidsNodes,
+corner: 4
+},
+
+$(go.Shape,{ strokeWidth:2 }),
+$(go.Shape,{ toArrow:"Standard" })
+
+);
+
+/* ---------------- ATTRIBUTE GENERATOR ---------------- */
+
+function generateAttributes(prefix,count){
+
+const types = ["int","varchar","datetime","decimal","boolean"];
+
+let arr=[];
+
+for(let i=1;i<=count;i++){
+
+arr.push({
+name:prefix+"_col_"+i,
+value:types[i%types.length]
+});
+
+}
+
+return arr;
+
+}
+
+/* ---------------- LINKED ATTRIBUTE SET ---------------- */
+
+function buildLinkedSet(nodeKey){
+
+const set = new Set();
+
+diagram.model.linkDataArray.forEach(link=>{
+
+if(link.from===nodeKey) set.add(link.fromPort);
+if(link.to===nodeKey) set.add(link.toPort);
+
+});
+
+return set;
+
+}
+
+/* ---------------- VIRTUAL WINDOW ---------------- */
+
+function updateWindow(nodeData,centerIndex){
+
+const full=nodeData.fullItems;
+
+let start=centerIndex-BUFFER;
+start=Math.max(0,start);
+
+let end=start+WINDOW_SIZE;
+end=Math.min(full.length,end);
+
+const visibleMap = new Map();
+
+/* add scroll window */
+
+for(let i=start;i<end;i++){
+visibleMap.set(full[i].name,full[i]);
+}
+
+/* add linked attributes */
+
+nodeData.linkedAttrs.forEach(name=>{
+
+const idx=parseInt(name.split("_").pop())-1;
+
+if(idx>=0 && idx<full.length){
+visibleMap.set(name,full[idx]);
+}
+
+});
+
+/* sort by attribute index */
+
+const sorted = Array.from(visibleMap.values()).sort((a,b)=>{
+
+const ai=parseInt(a.name.split("_").pop());
+const bi=parseInt(b.name.split("_").pop());
+
+return ai-bi;
+
+});
+
+nodeData.startIndex=start;
+nodeData.visibleItems=sorted;
+
+}
+
+/* ---------------- SCROLL HANDLER ---------------- */
+
+diagram.toolManager.doMouseWheel=function(){
+
+const e=diagram.lastInput;
+
+const node=diagram.findPartAt(e.documentPoint);
+if(!node) return;
+
+const data=node.data;
+
+const table=node.findObject("TABLE");
+if(!table) return;
+
+const panel=table.panel;
+
+/* normal scroll */
+
+if(panel && panel._scrollTable){
+
+if(e.delta>0)
+panel._scrollTable(table,-1);
+else
+panel._scrollTable(table,1);
+
+panel._updateScrollBar(table);
+
+}
+
+const globalIndex=data.startIndex+table.topIndex;
+
+diagram.model.startTransaction("scroll");
+
+updateWindow(data,globalIndex);
+
+diagram.model.updateTargetBindings(data);
+
+diagram.model.commitTransaction("scroll");
+
+/* restore position */
+
+table.topIndex=Math.max(0,globalIndex-data.startIndex);
+
+};
+
+/* ---------------- MODEL ---------------- */
+
+const nodeDataArray=[
+
+{
+key:"Customers",
+fullItems:generateAttributes("customer",3000),
+visibleItems:[],
+startIndex:0
+},
+
+{
+key:"Orders",
+fullItems:generateAttributes("order",3000),
+visibleItems:[],
+startIndex:0
+}
+
+];
+
+diagram.model=new go.GraphLinksModel({
+
+linkFromPortIdProperty:"fromPort",
+linkToPortIdProperty:"toPort",
+
+nodeDataArray:nodeDataArray,
+
+linkDataArray:[
+
+{from:"Customers",fromPort:"customer_col_1",to:"Orders",toPort:"order_col_2"},
+{from:"Customers",fromPort:"customer_col_20",to:"Orders",toPort:"order_col_50"},
+{from:"Customers",fromPort:"customer_col_200",to:"Orders",toPort:"order_col_210"},
+{from:"Customers",fromPort:"customer_col_500",to:"Orders",toPort:"order_col_700"},
+{from:"Customers",fromPort:"customer_col_1200",to:"Orders",toPort:"order_col_1400"}
+
+]
+
+});
+
+/* build linked sets */
+
+nodeDataArray.forEach(n=>{
+n.linkedAttrs=buildLinkedSet(n.key);
+});
+
+/* initial window */
+
+nodeDataArray.forEach(n=>updateWindow(n,0));
+
+diagram.model.updateTargetBindings();
+
+</script>
+
+</body>
+</html>

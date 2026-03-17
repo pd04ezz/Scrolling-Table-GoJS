@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<script src="https://unpkg.com/gojs/release/go.js"></script>
+<script src="ScrollingTable.js"></script>
+</head>
+
+<body>
+
+<div id="myDiagramDiv" style="width:100%;height:600px;border:1px solid lightgray"></div>
+
+<script>
+
+const $ = go.GraphObject.make;
+const WINDOW = 20;
+
+const diagram =
+$(go.Diagram,"myDiagramDiv",
+{
+  "undoManager.isEnabled":true
+});
+
+
+// ---------- NODE TEMPLATE ----------
+
+diagram.nodeTemplate =
+$(go.Node,"Vertical",
+
+$(go.Shape,"Rectangle",
+{ portId:"TOP", width:1,height:1, fromLinkable:true,toLinkable:true }),
+
+$(go.Shape,"Rectangle",
+{ portId:"BOTTOM", width:1,height:1, fromLinkable:true,toLinkable:true }),
+
+$(go.TextBlock,
+{font:"bold 15px sans-serif",margin:5},
+new go.Binding("text","key")
+),
+
+$(go.Panel,"Auto",
+
+$(go.Shape,{fill:"white"}),
+
+$("ScrollingTable",
+{
+name:"SCROLLER",
+desiredSize:new go.Size(260,180)
+},
+
+new go.Binding("TABLE.itemArray","visibleItems"),
+
+{
+"TABLE.itemTemplate":
+
+$(go.Panel,"TableRow",
+{
+defaultStretch:go.Stretch.Horizontal,
+fromSpot:go.Spot.Right,
+toSpot:go.Spot.Left,
+fromLinkable:true,
+toLinkable:true
+},
+
+new go.Binding("portId","name"),
+
+$(go.TextBlock,
+{column:0,margin:3,width:160},
+new go.Binding("text","name")
+),
+
+$(go.TextBlock,
+{column:1,margin:3,stroke:"#555"},
+new go.Binding("text","value")
+)
+
+)
+}
+
+)
+
+)
+
+);
+
+
+// ---------- LINK TEMPLATE ----------
+
+diagram.linkTemplate =
+$(go.Link,
+{
+routing:go.Link.AvoidsNodes,
+corner:4
+},
+
+$(go.Shape,{strokeWidth:2}),
+$(go.Shape,{toArrow:"Standard"})
+
+);
+
+
+// ---------- ATTRIBUTE GENERATOR ----------
+
+function generateAttributes(prefix,count){
+
+const types=["int","varchar","datetime","decimal","boolean"];
+let arr=[];
+
+for(let i=1;i<=count;i++){
+
+arr.push({
+name:prefix+"_col_"+i,
+value:types[i%types.length]
+});
+
+}
+
+return arr;
+
+}
+
+
+// ---------- WINDOW ----------
+
+function getWindow(arr,start){
+return arr.slice(start,start+WINDOW);
+}
+
+
+// ---------- GET ATTRIBUTE INDEX ----------
+
+function getIndex(portId){
+return parseInt(portId.split("_").pop())-1;
+}
+
+
+// ---------- UPDATE LINKS ----------
+
+function updateLinks(node){
+
+const start=node.data.scrollIndex;
+const end=start+WINDOW;
+
+diagram.links.each(link=>{
+
+// FROM SIDE
+if(link.data.from===node.data.key){
+
+const original=link.data.fromPort;
+const index=getIndex(original);
+
+let target;
+
+if(index<start)
+target="TOP";
+else if(index>=end)
+target="BOTTOM";
+else
+target=original;
+
+link.fromPortId=target;
+
+}
+
+// TO SIDE
+if(link.data.to===node.data.key){
+
+const original=link.data.toPort;
+const index=getIndex(original);
+
+let target;
+
+if(index<start)
+target="TOP";
+else if(index>=end)
+target="BOTTOM";
+else
+target=original;
+
+link.toPortId=target;
+
+}
+
+});
+
+diagram.requestUpdate();
+
+}
+
+
+// ---------- SCROLL ----------
+
+diagram.toolManager.doMouseWheel=function(){
+
+const e=diagram.lastInput;
+const node=diagram.findPartAt(e.documentPoint);
+
+if(!node) return;
+
+const data=node.data;
+
+let index=data.scrollIndex;
+
+if(e.delta>0)
+index--;
+else
+index++;
+
+index=Math.max(0,Math.min(data.items.length-WINDOW,index));
+
+diagram.model.startTransaction("scroll");
+
+diagram.model.setDataProperty(data,"scrollIndex",index);
+diagram.model.setDataProperty(
+data,
+"visibleItems",
+getWindow(data.items,index)
+);
+
+diagram.model.commitTransaction("scroll");
+
+updateLinks(node);
+
+};
+
+
+// ---------- MODEL ----------
+
+const cust=generateAttributes("customer",3000);
+const ord=generateAttributes("order",3000);
+
+diagram.model=new go.GraphLinksModel({
+
+linkFromPortIdProperty:"fromPort",
+linkToPortIdProperty:"toPort",
+
+nodeDataArray:[
+
+{
+key:"Customers",
+items:cust,
+scrollIndex:0,
+visibleItems:getWindow(cust,0)
+},
+
+{
+key:"Orders",
+items:ord,
+scrollIndex:0,
+visibleItems:getWindow(ord,0)
+}
+
+],
+
+linkDataArray:[
+
+{from:"Customers",fromPort:"customer_col_1",to:"Orders",toPort:"order_col_2"},
+{from:"Customers",fromPort:"customer_col_5",to:"Orders",toPort:"order_col_10"},
+{from:"Customers",fromPort:"customer_col_20",to:"Orders",toPort:"order_col_50"},
+{from:"Customers",fromPort:"customer_col_30",to:"Orders",toPort:"order_col_60"},
+{from:"Customers",fromPort:"customer_col_70",to:"Orders",toPort:"order_col_120"},
+{from:"Customers",fromPort:"customer_col_90",to:"Orders",toPort:"order_col_150"},
+{from:"Customers",fromPort:"customer_col_120",to:"Orders",toPort:"order_col_180"},
+{from:"Customers",fromPort:"customer_col_200",to:"Orders",toPort:"order_col_210"},
+{from:"Customers",fromPort:"customer_col_250",to:"Orders",toPort:"order_col_260"}
+
+]
+
+});
+
+</script>
+
+</body>
+</html>

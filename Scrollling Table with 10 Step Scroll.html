@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<script src="https://unpkg.com/gojs/release/go.js"></script>
+<script src="ScrollingTable.js"></script>
+</head>
+
+<body>
+
+<div id="myDiagramDiv" style="width:100%;height:600px;border:1px solid lightgray"></div>
+
+<script>
+
+const $ = go.GraphObject.make;
+
+const diagram =
+$(go.Diagram,"myDiagramDiv",
+{ "undoManager.isEnabled":true });
+
+
+// ----------- SCROLL SETTINGS -----------
+
+const STEP = 10;          // how many rows to move per scroll
+let lastScroll = 0;       // throttle timer
+
+
+
+// ----------- NODE TEMPLATE -----------
+
+diagram.nodeTemplate =
+$(go.Node,"Vertical",
+
+$(go.TextBlock,
+{font:"bold 15px sans-serif", margin:5},
+new go.Binding("text","key")
+),
+
+$(go.Panel,"Auto",
+
+$(go.Shape,{fill:"white"}),
+
+$("ScrollingTable",
+{
+name:"SCROLLER",
+desiredSize:new go.Size(260,180)
+},
+
+new go.Binding("TABLE.itemArray","items"),
+
+{
+"TABLE.itemTemplate":
+
+$(go.Panel,"TableRow",
+{
+defaultStretch:go.Stretch.Horizontal,
+fromSpot:go.Spot.Right,
+toSpot:go.Spot.Left,
+fromLinkable:true,
+toLinkable:true
+},
+
+new go.Binding("portId","name"),
+
+$(go.TextBlock,
+{column:0, margin:3, width:160},
+new go.Binding("text","name")
+),
+
+$(go.TextBlock,
+{column:1, margin:3, stroke:"#555"},
+new go.Binding("text","value")
+)
+
+)
+}
+
+)
+
+)
+
+);
+
+
+// ----------- LINK TEMPLATE -----------
+
+diagram.linkTemplate =
+$(go.Link,
+{
+routing: go.Link.AvoidsNodes,
+corner: 4,
+
+relinkableFrom: true,
+relinkableTo: true,
+
+reshapable: true,
+resegmentable: true,
+
+adjusting: go.Link.Stretch,
+
+selectionAdorned: true
+},
+
+$(go.Shape,
+{ strokeWidth: 2 }
+),
+
+$(go.Shape,
+{ toArrow: "Standard" }
+)
+
+);
+
+
+// ----------- MOUSE WHEEL SCROLL -----------
+
+diagram.toolManager.doMouseWheel = function() {
+
+const now = Date.now();
+
+// throttle scrolling slightly
+if (now - lastScroll < 40) return;
+
+lastScroll = now;
+
+const e = diagram.lastInput;
+const node = diagram.findPartAt(e.documentPoint);
+
+if (!node) return;
+
+const table = node.findObject("TABLE");
+if (!table) return;
+
+const panel = table.panel;
+
+if (panel && panel._scrollTable) {
+
+if (e.delta > 0) {
+panel._scrollTable(table, -STEP);
+} else {
+panel._scrollTable(table, STEP);
+}
+
+panel._updateScrollBar(table);
+
+}
+
+};
+
+
+
+// ----------- ATTRIBUTE GENERATOR -----------
+
+function generateAttributes(prefix,count){
+
+const types = ["int","varchar","datetime","decimal","boolean"];
+
+let arr = [];
+
+for(let i=1;i<=count;i++){
+
+arr.push({
+name: prefix+"_col_"+i,
+value: types[i % types.length]
+});
+
+}
+
+return arr;
+
+}
+
+
+
+// ----------- MODEL -----------
+
+diagram.model = new go.GraphLinksModel({
+
+linkFromPortIdProperty:"fromPort",
+linkToPortIdProperty:"toPort",
+
+nodeDataArray:[
+
+{
+key:"Customers",
+items: generateAttributes("customer",3000)
+},
+
+{
+key:"Orders",
+items: generateAttributes("order",3000)
+}
+
+],
+
+linkDataArray:[
+
+{from:"Customers", fromPort:"customer_col_1", to:"Orders", toPort:"order_col_2"},
+{from:"Customers", fromPort:"customer_col_5", to:"Orders", toPort:"order_col_10"},
+{from:"Customers", fromPort:"customer_col_23", to:"Orders", toPort:"order_col_55"},
+{from:"Customers", fromPort:"customer_col_30", to:"Orders", toPort:"order_col_60"},
+{from:"Customers", fromPort:"customer_col_70", to:"Orders", toPort:"order_col_120"},
+{from:"Customers", fromPort:"customer_col_90", to:"Orders", toPort:"order_col_150"},
+{from:"Customers", fromPort:"customer_col_120", to:"Orders", toPort:"order_col_180"},
+{from:"Customers", fromPort:"customer_col_200", to:"Orders", toPort:"order_col_210"},
+{from:"Customers", fromPort:"customer_col_250", to:"Orders", toPort:"order_col_260"}
+
+]
+
+});
+
+</script>
+
+</body>
+</html>
