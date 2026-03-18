@@ -261,6 +261,40 @@
 
             // Alignment calculation
             thumb.alignment = new go.Spot(0.5, percentage, 0, 0);
+
+            // Update button opacity for global bounds
+            const up = bar.findObject("UP");
+            const down = bar.findObject("DOWN");
+            if (up) up.opacity = constrainedTopIndex > 0 ? 1.0 : 0.3;
+            if (down) down.opacity = constrainedTopIndex < maxGlobalTopIndex ? 1.0 : 0.3;
+        }
+
+        /* ---------------- VIRTUAL SCROLL HELPER ---------------- */
+        function virtualScrollBy(node, delta) {
+            const data = node.data;
+            const table = node.findObject("TABLE");
+            if (!table) return;
+
+            // Current global top index
+            const currentGlobalIndex = data.startIndex + table.topIndex;
+            const targetGlobalIndex = currentGlobalIndex + delta;
+
+            const metrics = getViewportMetrics(node);
+            const maxGlobalIndex = Math.max(0, data.fullItems.length - metrics.capacity);
+            const constrainedIndex = Math.max(0, Math.min(targetGlobalIndex, maxGlobalIndex));
+
+            if (constrainedIndex === currentGlobalIndex && delta !== 0) return;
+
+            diagram.model.startTransaction("scroll");
+            updateWindow(node, constrainedIndex);
+            diagram.model.updateTargetBindings(data);
+            diagram.model.commitTransaction("scroll");
+
+            // Restore/Update local topIndex to match the global offset
+            table.topIndex = Math.max(0, constrainedIndex - data.startIndex);
+
+            updateVirtualScrollBar(node);
+            node.invalidateConnectedLinks();
         }
 
         diagram.toolManager.doMouseWheel = function () {
@@ -270,64 +304,27 @@
             const node = diagram.findPartAt(e.documentPoint);
             if (!node) return;
 
-            const data = node.data;
-
-            const table = node.findObject("TABLE");
-            if (!table) return;
-
-            const panel = table.panel;
-
-            /* normal scroll */
-
-            if (panel && panel._scrollTable) {
-
-                if (e.delta > 0)
-                    panel._scrollTable(table, -1);
-                else
-                    panel._scrollTable(table, 1);
-
-                // Call our custom scrollbar updater INSTEAD of the native one
-                // panel._updateScrollBar(table); 
-                updateVirtualScrollBar(node);
-            }
-
-            const globalIndex = data.startIndex + table.topIndex;
-
-            diagram.model.startTransaction("scroll");
-
-            // Stop scrolling past the end
-            const metrics = getViewportMetrics(node);
-            const maxGlobalTopIndex = Math.max(0, data.fullItems.length - metrics.capacity);
-            const constrainedIndex = Math.min(globalIndex, maxGlobalTopIndex);
-
-            updateWindow(node, constrainedIndex);
-
-            diagram.model.updateTargetBindings(data);
-
-            diagram.model.commitTransaction("scroll");
-
-            /* restore position */
-
-            table.topIndex = Math.max(0, constrainedIndex - data.startIndex);
-
-            // Ensure scrollbar is correct after transaction
-            updateVirtualScrollBar(node);
-            node.invalidateConnectedLinks();
+            // Simple jump: -1 or +1 per wheel notch
+            virtualScrollBy(node, e.delta > 0 ? -1 : 1);
 
         };
 
-        /* Initial evaluation for scrollbar geometry */
+        /* Initial evaluation for scrollbar geometry and button overrides */
         diagram.addDiagramListener("InitialLayoutCompleted", e => {
             diagram.nodes.each(node => {
                 if (node.data.fullItems) {
+                    // Force initial sync
+                    updateWindow(node, 0);
                     updateVirtualScrollBar(node);
 
-                    // Override thumb dragging logic
                     const table = node.findObject("TABLE");
                     const thumb = node.findObject("THUMB");
                     const bar = node.findObject("SCROLLBAR");
 
-                    if (thumb && bar && table) {
+                    if (!table || !bar) return;
+
+                    // Override thumb dragging logic
+                    if (thumb) {
                         thumb.actionMove = (ev, thb) => {
                             const local = bar.getLocalPoint(ev.documentPoint);
                             const availH = bar.actualBounds.height;
@@ -343,7 +340,6 @@
                             const maxGlobalTopIndex = Math.max(0, node.data.fullItems.length - metrics.capacity);
                             const targetGlobalIndex = Math.round(percentage * maxGlobalTopIndex);
 
-                            // Direct mapping
                             diagram.model.startTransaction("thumb drag");
                             updateWindow(node, targetGlobalIndex);
                             diagram.model.updateTargetBindings(node.data);
@@ -356,35 +352,50 @@
                     }
 
                     // Override bar clicking logic
-                    if (bar && table) {
-                        bar.click = (ev, br) => {
+                    bar.click = (ev, br) => {
+                        ev.handled = true;
+                        const local = br.getLocalPoint(ev.documentPoint);
+                        const availH = br.actualBounds.height;
+                        const thumbH = thumb ? thumb.actualBounds.height : 15;
+
+                        let thumbTop = local.y - (thumbH / 2);
+                        thumbTop = Math.max(0, Math.min(availH - thumbH, thumbTop));
+
+                        let percentage = 0;
+                        if (availH - thumbH > 0) percentage = thumbTop / (availH - thumbH);
+
+                        const metrics = getViewportMetrics(node);
+                        const maxGlobalTopIndex = Math.max(0, node.data.fullItems.length - metrics.capacity);
+                        const targetGlobalIndex = Math.round(percentage * maxGlobalTopIndex);
+
+                        diagram.model.startTransaction("bar click");
+                        updateWindow(node, targetGlobalIndex);
+                        diagram.model.updateTargetBindings(node.data);
+                        diagram.model.commitTransaction("bar click");
+
+                        table.topIndex = Math.max(0, targetGlobalIndex - node.data.startIndex);
+                        updateVirtualScrollBar(node);
+                        node.invalidateConnectedLinks();
+                    };
+
+                    // Override UP/DOWN button behavior
+                    const up = bar.findObject("UP");
+                    if (up) {
+                        up.click = (ev, obj) => {
                             ev.handled = true;
-                            const local = br.getLocalPoint(ev.documentPoint);
-                            const availH = br.actualBounds.height;
-                            const thumbH = thumb ? thumb.actualBounds.height : 15;
-
-                            let thumbTop = local.y - (thumbH / 2);
-                            thumbTop = Math.max(0, Math.min(availH - thumbH, thumbTop));
-
-                            let percentage = 0;
-                            if (availH - thumbH > 0) percentage = thumbTop / (availH - thumbH);
-
-                            const metrics = getViewportMetrics(node);
-                            const maxGlobalTopIndex = Math.max(0, node.data.fullItems.length - metrics.capacity);
-                            const targetGlobalIndex = Math.round(percentage * maxGlobalTopIndex);
-
-                            diagram.model.startTransaction("bar click");
-                            updateWindow(node, targetGlobalIndex);
-                            diagram.model.updateTargetBindings(node.data);
-                            diagram.model.commitTransaction("bar click");
-
-                            table.topIndex = Math.max(0, targetGlobalIndex - node.data.startIndex);
-                            updateVirtualScrollBar(node);
-                            node.invalidateConnectedLinks();
+                            virtualScrollBy(node, -1);
+                        };
+                    }
+                    const down = bar.findObject("DOWN");
+                    if (down) {
+                        down.click = (ev, obj) => {
+                            ev.handled = true;
+                            virtualScrollBy(node, 1);
                         };
                     }
                 }
             });
+            diagram.model.updateTargetBindings();
         });
 
 
@@ -460,18 +471,7 @@
             linkDataArray: linkDataArray
         });
 
-        // Need to run this in a listener later because we need access to the Node GraphObject
-        // to dynamically measure heights and fix the window boundaries precisely.
-        diagram.addDiagramListener("InitialLayoutCompleted", e => {
-            diagram.nodes.each(node => {
-                if (node.data.fullItems) {
-                    // Force the dynamic update once physical bounds are known
-                    updateWindow(node, 0);
-                    updateVirtualScrollBar(node);
-                }
-            });
-            diagram.model.updateTargetBindings();
-        });
+
 
     </script>
 
