@@ -26,19 +26,19 @@
             right: 20px;
             z-index: 1000;
             padding: 10px 20px;
-            background-color: #4CAF50;
+            background-color: #3333ff;
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
             font-family: sans-serif;
             font-weight: bold;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
             transition: background 0.2s;
         }
 
         #saveBtn:hover {
-            background-color: #45a049;
+            background-color: #1dcaf9;
         }
     </style>
 </head>
@@ -174,7 +174,7 @@
                                             let d = data;
                                             let p = obj;
                                             while (!d && p.panel) { p = p.panel; d = p.data; }
-                                            
+
                                             const node = obj.part;
                                             const state = node ? globalNodeState.get(node.key) : null;
                                             const active = (state && d && state.activeFilters.has(d.name));
@@ -482,7 +482,7 @@
             { from: "Store", fromPort: "store_col_15", to: "Inventory", toPort: "inv_col_30", text: "DimensionDimension" },
             { from: "Products", fromPort: "products_col_40", to: "Inventory", toPort: "inv_col_45", text: "DimensionDimension" },
             { from: "Products", fromPort: "products_col_100", to: "Inventory", toPort: "inv_col_500", text: "DimensionDimension" },
-            
+
             // Link from Store (Standard Scrolling demo)
             { from: "Store", fromPort: "store_col_5", to: "Inventory", toPort: "inv_col_50", text: "DimensionDimension" }
         ];
@@ -545,13 +545,13 @@
         // Initialize Data Store and syncing nodeData
         nodeDataArray.forEach(n => {
             const full = n.fullItems || [];
-            
+
             // Register in global memory store
             const nodeState = {
                 fullItems: full,
                 activeFilters: new Set()
             };
-            
+
             // INITIAL FILTERS: Enable for 1st, 5th, and 10th attributes by default
             const defaults = [0, 4, 9];
             defaults.forEach(idx => {
@@ -562,7 +562,7 @@
 
 
             n.linkedAttrs = buildLinkedSet(n.key);
-            
+
             // THRESHOLD: Only virtualize if row count > 200
             n.isVirtualized = (full.length > 200);
 
