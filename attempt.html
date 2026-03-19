@@ -516,14 +516,14 @@
 
             {
                 key: "Products",
-                fullItems: generateAttributes("product", 3000),
+                fullItems: generateAttributes("products", 3000),
                 visibleItems: [],
                 startIndex: 0,
                 loc: "0 0"
             },
             {
                 key: "Suppliers",
-                fullItems: generateAttributes("supplier", 1500),
+                fullItems: generateAttributes("suppliers", 1500),
                 visibleItems: [],
                 startIndex: 0,
                 loc: "0 350"
@@ -552,9 +552,20 @@
                 activeFilters: new Set()
             };
 
-            // INITIAL FILTERS: Enable for 1st, 5th, and 10th attributes by default
-            const defaults = [0, 4, 9];
-            defaults.forEach(idx => {
+            // INITIAL FILTERS:
+            // 1. Common: Rows 6 and 7 (indices 5, 6) for all nodes
+            [5, 6].forEach(idx => {
+                if (full[idx]) nodeState.activeFilters.add(full[idx].name);
+            });
+            
+            // 2. Node-specific variety
+            const variety = {
+                "Products": [0, 10, 20],
+                "Suppliers": [2, 12, 22],
+                "Store": [4, 14, 24],
+                "Inventory": [8, 18, 28]
+            };
+            (variety[n.key] || []).forEach(idx => {
                 if (full[idx]) nodeState.activeFilters.add(full[idx].name);
             });
 
