@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8">
+    <title>Test Virtualized Diagram Module</title>
+    <!-- Load GoJS and the ScrollingTable extension first -->
+    <script src="https://unpkg.com/gojs/release/go.js"></script>
+    <script src="ScrollingTable.js"></script>
+
+    <!-- Use Import Map to resolve project-specific dependencies to our local mock file -->
+    <script type="importmap">
+    {
+        "imports": {
+            "../link/LinkEventHandler": "./mock_dependencies.js",
+            "../constants/ColorConstants": "./mock_dependencies.js",
+            "../hooks/useDiagram": "./mock_dependencies.js",
+            "../node/NodeService": "./mock_dependencies.js",
+            "../canvas/CanvasService": "./mock_dependencies.js",
+            "../constants/NodeConstants": "./mock_dependencies.js",
+            "../constants/TransactionConstants": "./mock_dependencies.js",
+            "../../../services/CMStoreService": "./mock_dependencies.js",
+            "../../../Redux/store/CMStoreConstant": "./mock_dependencies.js",
+            "../../../Redux/constants/CMStoreConstants": "./mock_dependencies.js"
+        }
+    }
+    </script>
+    <style>
+        body,
+        html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+        }
+
+        #myDiagramDiv {
+            width: 100%;
+            height: 100%;
+        }
+
+        #info {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            background: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            z-index: 10;
+            font-family: sans-serif;
+            border: 1px solid #ccc;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="myDiagramDiv"></div>
+
+    <script type="module">
+        import InitDiagram from './InitDiagramVirtualized.js';
+
+        // 1. Initialize the Diagram
+        const diagram = InitDiagram({ linkPresent: true });
+        diagram.div = document.getElementById("myDiagramDiv");
+
+        // 2. Data Preparation Helper
+        function generateAttributes(prefix, count) {
+            const arr = [];
+            for (let i = 1; i <= count; i++) {
+                arr.push({
+                    name: prefix + "_col_" + i,
+                    type: Math.random() > 0.5 ? "number" : "string"
+                });
+            }
+            return arr;
+        }
+
+        function prepareNodeData(n) {
+            const full = n.fullItems || [];
+            n.isVirtualized = (full.length > 200);
+            n.indexMap = new Map();
+            full.forEach((item, idx) => n.indexMap.set(item, idx));
+            n.startIndex = 0;
+            n.visibleItems = n.isVirtualized ? full.slice(0, 60) : full;
+            
+            // Calculate initial size to support TwoWay binding and manual resizing
+            const count = full.length;
+            const contentH = count * 26 + 34; // ROW_HEIGHT=26, BUTTONS_H=34
+            const initialH = n.isVirtualized ? 300 : Math.min(300, contentH);
+            n.size = go.Size.stringify(new go.Size(250, initialH));
+            
+            return n;
+        }
+
+        // 3. Define Test Data (matches attempt.html exactly)
+        const nodeDataArray = [
+            prepareNodeData({ id: "Products", key: "Products", fullItems: generateAttributes("products", 3000), loc: "0 0" }),
+            prepareNodeData({ id: "Suppliers", key: "Suppliers", fullItems: generateAttributes("suppliers", 1500), loc: "0 350" }),
+            prepareNodeData({ id: "Store", key: "Store", fullItems: generateAttributes("store", 50), loc: "0 700" }),
+            prepareNodeData({ id: "Warehouse", key: "Warehouse", fullItems: generateAttributes("warehouse", 3), loc: "0 1050" }),
+            prepareNodeData({ id: "Inventory", key: "Inventory", fullItems: generateAttributes("inv", 3000), loc: "500 350" })
+        ];
+
+        const linkDataArray = [
+            { from: "Products", fromPort: "products_col_5", to: "Inventory", toPort: "inv_col_10", key: "L1" },
+            { from: "Suppliers", fromPort: "suppliers_col_10", to: "Inventory", toPort: "inv_col_20", key: "L2" },
+            { from: "Store", fromPort: "store_col_15", to: "Inventory", toPort: "inv_col_30", key: "L3" },
+            { from: "Warehouse", fromPort: "warehouse_col_2", to: "Inventory", toPort: "inv_col_40", key: "L4" }
+        ];
+
+        // 4. Load Model
+        diagram.model.nodeDataArray = nodeDataArray;
+        diagram.model.linkDataArray = linkDataArray;
+
+        // Make it easier to access from console
+        window.myDiagram = diagram;
+    </script>
+</body>
+
+</html>

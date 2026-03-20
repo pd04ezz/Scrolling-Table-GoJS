@@ -78,7 +78,7 @@
             // The capacity is how many rows actually take space.
             // Using Math.ceil ensures that partial rows at the bottom are included in calculations
             // so we don't leave empty holes in the virtual window.
-            const capacity = Math.max(1, Math.ceil(availH / ROW_HEIGHT));
+            const capacity = Math.max(1, Math.floor(availH / ROW_HEIGHT));
             return {
                 capacity: capacity, // How many rows physically fit (fully or partially)
                 windowSize: capacity + BUFFER * 2 // How many rows to render
@@ -124,11 +124,20 @@
                             desiredSize: new go.Size(250, 300),
                             stretch: go.Stretch.Fill
                         },
+                        new go.Binding("desiredSize", "fullItems", (items, obj) => {
+                            const count = items ? items.length : 0;
+                            const contentH = count * ROW_HEIGHT + BUTTONS_H;
+                            const node = obj.part;
+                            const isVirt = node && node.data && node.data.isVirtualized;
+                            if (!isVirt && contentH < 300) {
+                                // Small non-virtualized node: shrink to fit content exactly
+                                return new go.Size(250, contentH);
+                            }
+                            return new go.Size(250, 300);
+                        }),
                         new go.Binding("maxSize", "fullItems", (items) => {
                             const count = items ? items.length : 0;
-                            // To show ALL items without scroll, the height must include all rows
-                            // PLUS the height of the Up and Down buttons in the ScrollingTable.
-                            return new go.Size(Infinity, Math.max(80, count * ROW_HEIGHT + BUTTONS_H));
+                            return new go.Size(Infinity, count * ROW_HEIGHT + BUTTONS_H);
                         }),
                         new go.Binding("TABLE.itemArray", "visibleItems"),
                         {
@@ -218,8 +227,65 @@
         diagram.linkTemplate =
             $(go.Link,
                 {
-                    // Straight links, no AvoidsNodes to prevent overlap routing
+                    // fromSpot/toSpot will be overridden dynamically
                 },
+                // Dynamic fromSpot: if the source port is off-screen, route to table edge
+                new go.Binding("fromSpot", "", (linkData, link) => {
+                    const fromNode = link.fromNode;
+                    if (!fromNode || !fromNode.data.isVirtualized) return go.Spot.Right;
+                    const port = fromNode.findPort(linkData.fromPort);
+                    if (!port || port === fromNode) {
+                        const full = fromNode.data.fullItems;
+                        const idx = full ? full.findIndex(i => i.name === linkData.fromPort) : -1;
+                        const globalTop = fromNode.data.startIndex + (fromNode.findObject("TABLE")?.topIndex || 0);
+                        // Calculate the scroller position within the node
+                        const scroller = fromNode.findObject("SCROLLER");
+                        const nodeH = fromNode.actualBounds.height;
+                        if (scroller && nodeH > 0) {
+                            const scrollerDocPt = scroller.getDocumentPoint(go.Spot.TopLeft);
+                            const nodeDocPt = fromNode.getDocumentPoint(go.Spot.TopLeft);
+                            const scrollerTopY = (scrollerDocPt.y - nodeDocPt.y) / nodeH;
+                            const scrollerBottomY = (scrollerDocPt.y + scroller.actualBounds.height - nodeDocPt.y) / nodeH;
+                            if (idx < globalTop) return new go.Spot(1, scrollerTopY);
+                            return new go.Spot(1, scrollerBottomY);
+                        }
+                        if (idx < globalTop) return go.Spot.TopRight;
+                        return go.Spot.BottomRight;
+                    }
+                    return go.Spot.Right;
+                }),
+                // Dynamic toSpot: if the target port is off-screen, route to table edge
+                new go.Binding("toSpot", "", (linkData, link) => {
+                    const toNode = link.toNode;
+                    if (!toNode || !toNode.data.isVirtualized) return go.Spot.Left;
+                    const port = toNode.findPort(linkData.toPort);
+                    if (!port || port === toNode) {
+                        const full = toNode.data.fullItems;
+                        const idx = full ? full.findIndex(i => i.name === linkData.toPort) : -1;
+                        const globalTop = toNode.data.startIndex + (toNode.findObject("TABLE")?.topIndex || 0);
+                        const scroller = toNode.findObject("SCROLLER");
+                        const nodeH = toNode.actualBounds.height;
+                        if (scroller && nodeH > 0) {
+                            const scrollerDocPt = scroller.getDocumentPoint(go.Spot.TopLeft);
+                            const nodeDocPt = toNode.getDocumentPoint(go.Spot.TopLeft);
+                            const scrollerTopY = (scrollerDocPt.y - nodeDocPt.y) / nodeH;
+                            const scrollerBottomY = (scrollerDocPt.y + scroller.actualBounds.height - nodeDocPt.y) / nodeH;
+                            if (idx < globalTop) return new go.Spot(0, scrollerTopY);
+                            return new go.Spot(0, scrollerBottomY);
+                        }
+                        if (idx < globalTop) return go.Spot.TopLeft;
+                        return go.Spot.BottomLeft;
+                    }
+                    return go.Spot.Left;
+                }),
+                // Eliminate the gap/stub when ports are off-screen
+                new go.Binding("fromEndSegmentLength", "", (linkData, link) => {
+                    const fromNode = link.fromNode;
+                    if (!fromNode || !fromNode.data.isVirtualized) return 10;
+                    const port = fromNode.findPort(linkData.fromPort);
+                    return (!port || port === fromNode) ? 0 : 10;
+                }),
+                new go.Binding("toEndSegmentLength", "", () => 15),
 
                 $(go.Shape, { strokeWidth: 1, stroke: "#999" }),
                 $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#999" }),
@@ -259,13 +325,8 @@
             let end = start + windowSize;
             end = Math.min(full.length, end);
 
-            // We use a Map to ensure each attribute is only added once (since first/last/linked 
-            // might overlap with the window)
+            // We use a Map to ensure each attribute is only added once
             const visibleMap = new Map();
-
-            // 1. ALWAYS include the very first and last items (important for links)
-            visibleMap.set(full[0], full[0]);
-            visibleMap.set(full[full.length - 1], full[full.length - 1]);
 
             // 2. Add items within the viewport (plus buffer)
             for (let i = start; i < end; i++) {
@@ -273,21 +334,9 @@
                 visibleMap.set(item, item);
             }
 
-            // 3. Ensure any attributes with incoming/outgoing links are ALWAYS rendered
-            // map them to their original index for better sorting performance
-            const itemToIndex = new Map();
-            full.forEach((item, idx) => itemToIndex.set(item, idx));
-
-            if (nodeData.linkedAttrs) {
-                nodeData.linkedAttrs.forEach(name => {
-                    // find the item by name in the master list
-                    const item = full.find(i => i.name === name);
-                    if (item) visibleMap.set(item, item);
-                });
-            }
-
             // 4. Sort the result based on their original position in the master list
-            // This avoids any dependency on numeric patterns in attribute names.
+            // We use the CACHED indexMap for $O(1)$ performance.
+            const itemToIndex = nodeData.indexMap;
             const sorted = Array.from(visibleMap.values()).sort((a, b) => {
                 return itemToIndex.get(a) - itemToIndex.get(b);
             });
@@ -368,6 +417,14 @@
 
             updateVirtualScrollBar(node);
             node.invalidateConnectedLinks();
+            refreshLinksForNode(node);
+        }
+
+        // Re-evaluate link fromSpot/toSpot bindings after a scroll
+        function refreshLinksForNode(node) {
+            node.findLinksConnected().each(link => {
+                diagram.model.updateTargetBindings(link.data);
+            });
         }
 
         const toolManager = diagram.toolManager;
@@ -427,19 +484,48 @@
 
                     const thumb = scroller.findObject("THUMB");
                     const bar = scroller.findObject("SCROLLBAR");
-                    if (!bar) return;
+                    const table = scroller.findObject("TABLE");
+                    if (!bar || !table) return;
 
-                    // Override thumb dragging logic
+                    // 1. OVERWRITE Internal ScrollingTable logic to use our virtualized versions
+                    scroller._updateScrollBar = () => updateVirtualScrollBar(node);
+                    scroller._scrollTable = (obj, incr) => virtualScrollBy(node, incr);
+
+                    // 2. Override thumb dragging logic
                     if (thumb) {
+                        thumb.isActionable = true;
                         thumb.actionMove = (ev, thb) => {
                             const local = bar.getLocalPoint(ev.documentPoint);
                             const uph = bar.findObject("UP")?.actualBounds.height || 0;
                             const downh = bar.findObject("DOWN")?.actualBounds.height || 0;
                             const range = bar.actualBounds.height - uph - downh;
                             const ratio = Math.max(0, Math.min(1, (local.y - uph) / range));
-                            const targetIdx = Math.round(ratio * node.data.fullItems.length);
-                            updateWindow(node, targetIdx);
+
+                            const metrics = getViewportMetrics(node);
+                            const maxTopIndex = Math.max(0, node.data.fullItems.length - metrics.capacity);
+                            const targetIdx = Math.round(ratio * maxTopIndex);
+
+                            if (node._lastDragIdx === targetIdx) return;
+                            node._lastDragIdx = targetIdx;
+
+                            // Use a single transaction per move frame for both data and visual updates
+                            diagram.model.startTransaction("thumb drag");
+                            updateWindow(node, targetIdx + BUFFER);
+
+                            // 1. Sync the Table's topIndex for sub-window alignment
+                            table.topIndex = Math.max(0, targetIdx - node.data.startIndex);
+
+                            // 2. Refresh bindings to render the new window of attributes
+                            diagram.model.updateTargetBindings(node.data);
+
+                            // 3. Move the thumb to the correct position based on the new index
                             updateVirtualScrollBar(node);
+
+                            diagram.model.commitTransaction("thumb drag");
+
+                            node.invalidateConnectedLinks();
+                            refreshLinksForNode(node);
+                            diagram.requestUpdate();
                         };
                     }
 
@@ -452,9 +538,19 @@
                             const downh = br.findObject("DOWN")?.actualBounds.height || 0;
                             const range = br.actualBounds.height - uph - downh;
                             const ratio = Math.max(0, Math.min(1, (local.y - uph) / range));
-                            const targetIdx = Math.round(ratio * node.data.fullItems.length);
-                            updateWindow(node, targetIdx);
+
+                            const metrics = getViewportMetrics(node);
+                            const maxTopIndex = Math.max(0, node.data.fullItems.length - metrics.capacity);
+                            const targetIdx = Math.round(ratio * maxTopIndex);
+
+                            diagram.model.startTransaction("bar click");
+                            updateWindow(node, targetIdx + BUFFER);
+                            table.topIndex = Math.max(0, targetIdx - node.data.startIndex);
+                            diagram.model.updateTargetBindings(node.data);
                             updateVirtualScrollBar(node);
+                            diagram.model.commitTransaction("bar click");
+                            node.invalidateConnectedLinks();
+                            refreshLinksForNode(node);
                         };
                     }
 
@@ -462,19 +558,27 @@
                     const up = scroller.findObject("UP");
                     if (up) {
                         up.click = (ev) => { ev.handled = true; virtualScrollBy(node, -1); };
-                        up.actionDown = (ev, obj) => { obj._timer = setInterval(() => virtualScrollBy(node, -1), 50); };
-                        up.actionUp = (ev, obj) => { if (obj._timer) clearInterval(obj._timer); };
                     }
                     const down = scroller.findObject("DOWN");
                     if (down) {
                         down.click = (ev) => { ev.handled = true; virtualScrollBy(node, 1); };
-                        down.actionDown = (ev, obj) => { obj._timer = setInterval(() => virtualScrollBy(node, 1), 50); };
-                        down.actionUp = (ev, obj) => { if (obj._timer) clearInterval(obj._timer); };
                     }
 
-                } else if (scroller._updateScrollBar) {
-                    // Fix initial small thumb on standard ScrollingTable
-                    scroller._updateScrollBar(scroller.findObject("TABLE"));
+                } else {
+                    // NON-VIRTUALIZED NODES: hide scrollbar if all items fit
+                    const table = scroller.findObject("TABLE");
+                    const full = node.data.fullItems || [];
+                    if (table) {
+                        const availH = scroller.actualBounds.height;
+                        const contentH = full.length * ROW_HEIGHT;
+                        if (contentH <= availH) {
+                            // All items fit — hide the scrollbar entirely
+                            const bar = scroller.findObject("SCROLLBAR");
+                            if (bar) bar.visible = false;
+                        } else if (scroller._updateScrollBar) {
+                            scroller._updateScrollBar(table);
+                        }
+                    }
                 }
             });
             diagram.model.updateTargetBindings();
@@ -550,16 +654,11 @@
         /* ---------------- MODEL ---------------- */
 
         const linkDataArray = [
-
-            // High concentration (First 50 nodes) ~80% (4 out of 5)
+            // 1 outgoing link per source node → Inventory can have multiple incoming
             { from: "Products", fromPort: "products_col_5", to: "Inventory", toPort: "inv_col_10", text: "DimensionDimension" },
             { from: "Suppliers", fromPort: "suppliers_col_10", to: "Inventory", toPort: "inv_col_20", text: "DimensionDimension" },
             { from: "Store", fromPort: "store_col_15", to: "Inventory", toPort: "inv_col_30", text: "DimensionDimension" },
-            { from: "Products", fromPort: "products_col_40", to: "Inventory", toPort: "inv_col_45", text: "DimensionDimension" },
-            { from: "Products", fromPort: "products_col_100", to: "Inventory", toPort: "inv_col_500", text: "DimensionDimension" },
-
-            // Link from Store (Standard Scrolling demo)
-            { from: "Store", fromPort: "store_col_5", to: "Inventory", toPort: "inv_col_50", text: "DimensionDimension" }
+            { from: "Warehouse", fromPort: "warehouse_col_2", to: "Inventory", toPort: "inv_col_40", text: "DimensionDimension" }
         ];
 
         /* Helper to find all attributes that have links for a given node */
@@ -581,6 +680,7 @@
             globalNodeState.forEach((state, key) => {
                 exported[key] = Array.from(state.activeFilters);
             });
+            console.log("Current Filter State:", exported);
             alert("State exported to browser console!\nCheck console for details.");
         }
 
@@ -604,6 +704,13 @@
                 key: "Store",
                 loc: "0 700",
                 fullItems: generateAttributes("store", 50),
+                visibleItems: [],
+                startIndex: 0
+            },
+            {
+                key: "Warehouse",
+                loc: "0 1050",
+                fullItems: generateAttributes("warehouse", 3),
                 visibleItems: [],
                 startIndex: 0
             },
@@ -654,24 +761,20 @@
             if (n.isVirtualized) {
                 // Initial window for large tables
                 const count = Math.min(full.length, 60);
-                for (let i = 0; i < count; i++) visibleMap.set(full[i], full[i]);
+                for (let i = 0; i < count; i++) {
+                    visibleMap.set(full[i], full[i]);
+                }
             } else {
                 // Full set for small tables
                 full.forEach(i => visibleMap.set(i, i));
             }
 
-            // Always include linked attributes
-            n.linkedAttrs.forEach(portName => {
-                const item = full.find(i => i.name === portName);
-                if (item) visibleMap.set(item, item);
-            });
-
-            // Name-independent sorting using master indices
-            const itemToIndex = new Map();
-            full.forEach((item, idx) => itemToIndex.set(item, idx));
+            // CACHE: Name-independent sorting using master indices
+            n.indexMap = new Map();
+            full.forEach((item, idx) => n.indexMap.set(item, idx));
 
             const sorted = Array.from(visibleMap.values()).sort((a, b) => {
-                return itemToIndex.get(a) - itemToIndex.get(b);
+                return n.indexMap.get(a) - n.indexMap.get(b);
             });
 
             n.startIndex = 0;
