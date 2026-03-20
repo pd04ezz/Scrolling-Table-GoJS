@@ -245,74 +245,56 @@
             return arr;
         }
 
-        /* ---------------- LINKED ATTRIBUTE SET ---------------- */
-
-        function buildLinkedSet(nodeKey) {
-
-            const set = new Set();
-
-            diagram.model.linkDataArray.forEach(link => {
-
-                if (link.from === nodeKey) set.add(link.fromPort);
-                if (link.to === nodeKey) set.add(link.toPort);
-
-            });
-
-            return set;
-
-        }
-
-        /* ---------------- VIRTUAL WINDOW ---------------- */
-
         function updateWindow(node, centerIndex) {
-
             const nodeData = node.data;
-
             const full = nodeData.fullItems;
+            if (!full) return;
 
-            const metrics = getViewportMetrics(node);
-            const windowSize = metrics.windowSize;
+            const { windowSize } = getViewportMetrics(node);
 
+            // Calculate start and end indices for the render window
             let start = centerIndex - BUFFER;
             start = Math.max(0, start);
 
             let end = start + windowSize;
             end = Math.min(full.length, end);
 
+            // We use a Map to ensure each attribute is only added once (since first/last/linked 
+            // might overlap with the window)
             const visibleMap = new Map();
 
-            /* add scroll window */
+            // 1. ALWAYS include the very first and last items (important for links)
+            visibleMap.set(full[0], full[0]);
+            visibleMap.set(full[full.length - 1], full[full.length - 1]);
 
+            // 2. Add items within the viewport (plus buffer)
             for (let i = start; i < end; i++) {
-                visibleMap.set(full[i].name, full[i]);
+                const item = full[i];
+                visibleMap.set(item, item);
             }
 
-            /* add linked attributes */
+            // 3. Ensure any attributes with incoming/outgoing links are ALWAYS rendered
+            // map them to their original index for better sorting performance
+            const itemToIndex = new Map();
+            full.forEach((item, idx) => itemToIndex.set(item, idx));
 
-            nodeData.linkedAttrs.forEach(name => {
+            if (nodeData.linkedAttrs) {
+                nodeData.linkedAttrs.forEach(name => {
+                    // find the item by name in the master list
+                    const item = full.find(i => i.name === name);
+                    if (item) visibleMap.set(item, item);
+                });
+            }
 
-                const idx = parseInt(name.split("_").pop()) - 1;
-
-                if (idx >= 0 && idx < full.length) {
-                    visibleMap.set(name, full[idx]);
-                }
-
-            });
-
-            /* sort by attribute index */
-
+            // 4. Sort the result based on their original position in the master list
+            // This avoids any dependency on numeric patterns in attribute names.
             const sorted = Array.from(visibleMap.values()).sort((a, b) => {
-
-                const ai = parseInt(a.name.split("_").pop());
-                const bi = parseInt(b.name.split("_").pop());
-
-                return ai - bi;
-
+                return itemToIndex.get(a) - itemToIndex.get(b);
             });
 
+            // Update the window state on the node data
             nodeData.startIndex = start;
             nodeData.visibleItems = sorted;
-
         }
 
         /* ---------------- SCROLL HANDLER ---------------- */
@@ -580,7 +562,7 @@
             { from: "Store", fromPort: "store_col_5", to: "Inventory", toPort: "inv_col_50", text: "DimensionDimension" }
         ];
 
-        /* build linked sets */
+        /* Helper to find all attributes that have links for a given node */
         function buildLinkedSet(nodeKey) {
             const set = new Set();
             linkDataArray.forEach(link => {
@@ -590,6 +572,7 @@
             return set;
         }
 
+
         /* ---------------- DATA STORE ---------------- */
         const globalNodeState = new Map(); // nodeKey -> { fullItems: [], activeFilters: Set }
 
@@ -598,10 +581,6 @@
             globalNodeState.forEach((state, key) => {
                 exported[key] = Array.from(state.activeFilters);
             });
-            console.log("================ CURRENT STATE EXPORT ================");
-            console.log("Active Filters Map:", exported);
-            console.log("Full Node State:", globalNodeState);
-            console.log("=====================================================");
             alert("State exported to browser console!\nCheck console for details.");
         }
 
@@ -670,25 +649,29 @@
             // THRESHOLD: Only virtualize if row count > 200
             n.isVirtualized = (full.length > 200);
 
+            // Initial population of visibleItems
             const visibleMap = new Map();
             if (n.isVirtualized) {
                 // Initial window for large tables
                 const count = Math.min(full.length, 60);
-                for (let i = 0; i < count; i++) visibleMap.set(full[i].name, full[i]);
+                for (let i = 0; i < count; i++) visibleMap.set(full[i], full[i]);
             } else {
                 // Full set for small tables
-                full.forEach(i => visibleMap.set(i.name, i));
+                full.forEach(i => visibleMap.set(i, i));
             }
 
-            // CRITICAL: Always include linked attributes so GoJS doesn't break links
-            n.linkedAttrs.forEach(name => {
-                const parts = name.split("_");
-                const idx = parseInt(parts[parts.length - 1]) - 1;
-                if (idx >= 0 && idx < full.length) visibleMap.set(name, full[idx]);
+            // Always include linked attributes
+            n.linkedAttrs.forEach(portName => {
+                const item = full.find(i => i.name === portName);
+                if (item) visibleMap.set(item, item);
             });
 
+            // Name-independent sorting using master indices
+            const itemToIndex = new Map();
+            full.forEach((item, idx) => itemToIndex.set(item, idx));
+
             const sorted = Array.from(visibleMap.values()).sort((a, b) => {
-                return parseInt(a.name.split("_").pop()) - parseInt(b.name.split("_").pop());
+                return itemToIndex.get(a) - itemToIndex.get(b);
             });
 
             n.startIndex = 0;
