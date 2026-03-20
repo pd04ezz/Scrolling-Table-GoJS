@@ -350,50 +350,54 @@
             const full = nodeData.fullItems;
             if (!full) return;
 
-            const { windowSize } = getViewportMetrics(node);
-
-            let start = centerIndex - BUFFER;
-            start = Math.max(0, start);
-
-            let end = start + windowSize;
-            end = Math.min(full.length, end);
-
             const visibleMap = new Map();
 
-            // 1. Add items within the viewport (plus buffer)
-            for (let i = start; i < end; i++) {
-                const item = full[i];
-                visibleMap.set(item, item);
-            }
+            if (!nodeData.isVirtualized) {
+                // 1. NON-VIRTUALIZED: Simply show all items
+                full.forEach(item => visibleMap.set(item, item));
+                nodeData.startIndex = 0;
+            } else {
+                // 2. VIRTUALIZED: Add items within the viewport (plus buffer)
+                const { windowSize } = getViewportMetrics(node);
+                let start = centerIndex - BUFFER;
+                start = Math.max(0, start);
+                let end = start + windowSize;
+                end = Math.min(full.length, end);
 
-            // 2. ALSO ALWAYS ADD ITEMS THAT HAVE CONNECTED LINKS
-            node.findLinksConnected().each(link => {
-                const portId = (link.fromNode === node) ? link.fromPortId : link.toPortId;
-                if (portId) {
-                    const item = full.find(i => i.name === portId);
-                    if (item) visibleMap.set(item, item);
+                for (let i = start; i < end; i++) {
+                    const item = full[i];
+                    visibleMap.set(item, item);
                 }
-            });
 
-            // 3. ALSO ALWAYS ADD ITEMS THAT HAVE ACTIVE FILTERS
-            const state = globalNodeState.get(node.key);
-            if (state && state.activeFilters) {
-                state.activeFilters.forEach(attrName => {
-                    const item = full.find(i => i.name === attrName);
-                    if (item) {
-                        visibleMap.set(item, item);
+                // 2b. ALSO ALWAYS ADD ITEMS THAT HAVE CONNECTED LINKS
+                node.findLinksConnected().each(link => {
+                    const portId = (link.fromNode === node) ? link.fromPortId : link.toPortId;
+                    if (portId) {
+                        const item = full.find(i => i.name === portId);
+                        if (item) visibleMap.set(item, item);
                     }
                 });
+
+                // 2c. ALSO ALWAYS ADD ITEMS THAT HAVE ACTIVE FILTERS
+                const state = globalNodeState.get(node.key);
+                if (state && state.activeFilters) {
+                    state.activeFilters.forEach(attrName => {
+                        const item = full.find(i => i.name === attrName);
+                        if (item) {
+                            visibleMap.set(item, item);
+                        }
+                    });
+                }
+                nodeData.startIndex = start;
             }
 
-            // 4. Sort based on original position in the master list
+            // 3. Sort based on original position in the master list
             const itemToIndex = nodeData.indexMap;
             const sorted = Array.from(visibleMap.values()).sort((a, b) => {
                 return itemToIndex.get(a) - itemToIndex.get(b);
             });
 
             // Update the window state
-            nodeData.startIndex = start;
             nodeData.visibleItems = sorted;
         }
 
