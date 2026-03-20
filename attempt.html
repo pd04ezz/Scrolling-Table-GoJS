@@ -153,6 +153,20 @@
 
                                     $(go.Panel, "Horizontal",
                                         { column: 0, margin: new go.Margin(6, 5, 6, 10) },
+                                        new go.Binding("visible", "", (data, obj) => {
+                                            const node = obj.part;
+                                            if (!node || !node.data) return true;
+                                            const nData = node.data;
+                                            if (!nData.isVirtualized) return true;
+
+                                            const fullIndex = nData.indexMap.get(data);
+                                            const metrics = getViewportMetrics(node);
+                                            const windowStart = nData.startIndex || 0;
+                                            const windowEnd = windowStart + metrics.capacity;
+
+                                            // Only show the row contents if it's within the viewport's capacity range
+                                            return (fullIndex >= windowStart && fullIndex < windowEnd);
+                                        }),
 
                                         // Filter Icon
                                         $(go.Shape, {
@@ -172,14 +186,34 @@
                                                 if (node && attrData) {
                                                     const state = globalNodeState.get(node.key);
                                                     if (state) {
-                                                        if (state.activeFilters.has(attrData.name)) {
-                                                            state.activeFilters.delete(attrData.name);
+                                                        const model = diagram.model;
+                                                        model.startTransaction("toggle filter");
+                                                        const attrName = attrData.name;
+                                                        const filterActive = !state.activeFilters.has(attrName);
+                                                        
+                                                        if (filterActive) {
+                                                            state.activeFilters.add(attrName);
                                                         } else {
-                                                            state.activeFilters.add(attrData.name);
+                                                            state.activeFilters.delete(attrName);
                                                         }
-                                                        // Refresh only the bindings for this specific attribute row
-                                                        diagram.model.updateTargetBindings(attrData);
-                                                        diagram.requestUpdate();
+
+                                                        // Refresh only the window because the "Always Rendered" set changed
+                                                        const table = node.findObject("TABLE");
+                                                        const currentTop = node.data.startIndex + (table ? table.topIndex : 0);
+                                                        updateWindow(node, currentTop + BUFFER);
+
+                                                        // Refresh bindings for the node data (to update visibleItems)
+                                                        model.updateTargetBindings(node.data);
+                                                        
+                                                        // CRITICAL: Force update and synchronize topIndex to prevent jump
+                                                        if (table) {
+                                                            table.topIndex = Math.max(0, currentTop - node.data.startIndex);
+                                                        }
+                                                        
+                                                        // Refresh the specific row's bindings to show the new filter state
+                                                        model.updateTargetBindings(attrData);
+                                                        
+                                                        model.commitTransaction("toggle filter");
                                                     }
                                                 }
                                             }
@@ -318,30 +352,47 @@
 
             const { windowSize } = getViewportMetrics(node);
 
-            // Calculate start and end indices for the render window
             let start = centerIndex - BUFFER;
             start = Math.max(0, start);
 
             let end = start + windowSize;
             end = Math.min(full.length, end);
 
-            // We use a Map to ensure each attribute is only added once
             const visibleMap = new Map();
 
-            // 2. Add items within the viewport (plus buffer)
+            // 1. Add items within the viewport (plus buffer)
             for (let i = start; i < end; i++) {
                 const item = full[i];
                 visibleMap.set(item, item);
             }
 
-            // 4. Sort the result based on their original position in the master list
-            // We use the CACHED indexMap for $O(1)$ performance.
+            // 2. ALSO ALWAYS ADD ITEMS THAT HAVE CONNECTED LINKS
+            node.findLinksConnected().each(link => {
+                const portId = (link.fromNode === node) ? link.fromPortId : link.toPortId;
+                if (portId) {
+                    const item = full.find(i => i.name === portId);
+                    if (item) visibleMap.set(item, item);
+                }
+            });
+
+            // 3. ALSO ALWAYS ADD ITEMS THAT HAVE ACTIVE FILTERS
+            const state = globalNodeState.get(node.key);
+            if (state && state.activeFilters) {
+                state.activeFilters.forEach(attrName => {
+                    const item = full.find(i => i.name === attrName);
+                    if (item) {
+                        visibleMap.set(item, item);
+                    }
+                });
+            }
+
+            // 4. Sort based on original position in the master list
             const itemToIndex = nodeData.indexMap;
             const sorted = Array.from(visibleMap.values()).sort((a, b) => {
                 return itemToIndex.get(a) - itemToIndex.get(b);
             });
 
-            // Update the window state on the node data
+            // Update the window state
             nodeData.startIndex = start;
             nodeData.visibleItems = sorted;
         }
@@ -408,7 +459,7 @@
             if (constrainedIndex === currentGlobalIndex && delta !== 0) return;
 
             diagram.model.startTransaction("scroll");
-            updateWindow(node, constrainedIndex);
+            updateWindow(node, constrainedIndex + BUFFER);
             diagram.model.updateTargetBindings(data);
             diagram.model.commitTransaction("scroll");
 
@@ -478,8 +529,13 @@
                 if (!scroller) return;
 
                 if (node.data.isVirtualized) {
-                    // Force initial sync
+                    // 1. Force the initial window of data (visibleItems) to be populated for EVERY node
+                    diagram.model.startTransaction("initial update");
                     updateWindow(node, 0);
+                    diagram.model.updateTargetBindings(node.data);
+                    diagram.model.commitTransaction("initial update");
+
+                    // 2. Virtual Scrollbar logic
                     updateVirtualScrollBar(node);
 
                     const thumb = scroller.findObject("THUMB");
@@ -587,7 +643,7 @@
         /* ---------------- RESIZE HANDLER ---------------- */
 
         diagram.addDiagramListener("PartResized", (e) => {
-            const obj = e.subject; // the resized graph object
+            const obj = e.subject; // the SCROLLER
             if (obj.name === "SCROLLER") {
                 const node = obj.part;
                 const table = obj.findObject("TABLE");
@@ -595,9 +651,12 @@
 
                 diagram.model.startTransaction("resize scroll");
 
-                // 1. Common Snapping logic for all ScrollingTables
+                // 1. Snapping logic (Accounting for scrollbar buttons)
                 const currentH = obj.actualBounds.height;
-                const snappedH = Math.round(currentH / ROW_HEIGHT) * ROW_HEIGHT;
+                const contentH = currentH - BUTTONS_H;
+                const snappedContentH = Math.round(contentH / ROW_HEIGHT) * ROW_HEIGHT;
+                const snappedH = snappedContentH + BUTTONS_H;
+
                 if (Math.abs(currentH - snappedH) > 0.1) {
                     obj.height = snappedH;
                 }
@@ -605,48 +664,38 @@
 
                 if (node.data.isVirtualized) {
                     // 2. VIRTUALIZED NODES: Recalculate window and align
-                    const metrics = getViewportMetrics(node);
+                    const trackH = snappedH - BUTTONS_H;
+                    const newMetrics = getViewportMetrics(node, trackH);
                     const currentTopIndex = node.data.startIndex + table.topIndex;
-                    const newMaxIndex = Math.max(0, node.data.fullItems.length - metrics.capacity);
+                    const newMaxIndex = Math.max(0, node.data.fullItems.length - newMetrics.capacity);
                     const targetTopIndex = Math.min(currentTopIndex, newMaxIndex);
 
                     updateWindow(node, targetTopIndex + BUFFER);
                     diagram.updateAllTargetBindings("visibleItems");
-                    node.updateTargetBindings();
-                    table.panel.updateTargetBindings();
-                    node.ensureBounds();
-
                     table.topIndex = Math.max(0, targetTopIndex - node.data.startIndex);
                     updateVirtualScrollBar(node);
                 } else {
-                    // 3. STANDARD NODES (e.g., Store): Just align topIndex if needed
-                    const capacity = Math.max(1, Math.ceil(obj.actualBounds.height / ROW_HEIGHT));
-                    const maxTopIndex = Math.max(0, table.rowCount - capacity);
-
-                    if (table.topIndex > maxTopIndex) {
-                        table.topIndex = maxTopIndex;
-                    }
-
+                    // 3. STANDARD NODES: Just align scrollbar
                     if (obj._updateScrollBar) obj._updateScrollBar(table);
                 }
 
                 node.invalidateConnectedLinks();
+                // Persist the size
+                diagram.model.setDataProperty(node.data, "size", go.Size.stringify(obj.actualBounds.size));
                 diagram.model.commitTransaction("resize scroll");
 
-                // Dual-pass sync to ensure layout catch-up
+                // Dual-pass sync to catch any rendering lag
                 if (node.data.isVirtualized) {
-                    const metrics = getViewportMetrics(node);
-                    const newMaxIndex = Math.max(0, node.data.fullItems.length - metrics.capacity);
+                    const latestTrackH = obj.actualBounds.height - BUTTONS_H;
+                    const latestMetrics = getViewportMetrics(node, latestTrackH);
+                    const newMaxIndex = Math.max(0, node.data.fullItems.length - latestMetrics.capacity);
                     const targetTopIndex = Math.min(node.data.startIndex + table.topIndex, newMaxIndex);
+                    
+                    updateWindow(node, targetTopIndex + BUFFER);
+                    diagram.updateAllTargetBindings("visibleItems");
                     table.topIndex = Math.max(0, targetTopIndex - node.data.startIndex);
-                } else {
-                    const capacity = Math.max(1, Math.floor(obj.actualBounds.height / ROW_HEIGHT));
-                    if (table.topIndex > (table.rowCount - capacity)) {
-                        table.topIndex = Math.max(0, table.rowCount - capacity);
-                    }
+                    updateVirtualScrollBar(node);
                 }
-
-                if (obj._updateScrollBar) obj._updateScrollBar(table);
             }
         });
 

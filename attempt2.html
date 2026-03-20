@@ -79,16 +79,25 @@
         const diagram =
             $(go.Diagram, "myDiagramDiv",
                 {
-                    "undoManager.isEnabled": true
+                    "undoManager.isEnabled": true,
+                    layout: $(go.LayeredDigraphLayout, {
+                        direction: 0,
+                        layerSpacing: 200,
+                        columnSpacing: 10,
+                        setsPortSpots: false,
+                        isOngoing: false // Prevent snapping back after move/resize
+                    }),
+                    "toolManager.mouseWheelBehavior": go.ToolManager.WheelZoom,
+                    "animationManager.isEnabled": false
                 });
 
         /* ---------------- DYNAMIC VIEWPORT HELPER ---------------- */
-        function getViewportMetrics(node) {
+        function getViewportMetrics(node, forcedHeight) {
             const table = node.findObject("TABLE");
             const bar = node.findObject("SCROLLBAR");
             if (!bar || !table) return { capacity: 60, windowSize: 60 + BUFFER * 2 };
 
-            const availH = bar.actualBounds.height || 200;
+            const availH = forcedHeight || bar.actualBounds.height || 200;
             const capacity = Math.max(1, Math.floor(availH / ROW_HEIGHT));
             return {
                 capacity: capacity,
@@ -133,19 +142,13 @@
                             desiredSize: new go.Size(250, 300),
                             stretch: go.Stretch.Fill
                         },
-                        new go.Binding("desiredSize", "fullItems", (items, obj) => {
+                        new go.Binding("desiredSize", "size", go.Size.parse).makeTwoWay(go.Size.stringify),
+                        new go.Binding("maxSize", "fullItems", (items, obj) => {
                             const count = items ? items.length : 0;
-                            const contentH = count * ROW_HEIGHT + BUTTONS_H;
-                            const node = obj.part;
-                            const isVirt = node && node.data && node.data.isVirtualized;
-                            if (!isVirt && contentH < 300) {
-                                return new go.Size(250, contentH);
-                            }
-                            return new go.Size(250, 300);
-                        }),
-                        new go.Binding("maxSize", "fullItems", (items) => {
-                            const count = items ? items.length : 0;
-                            return new go.Size(Infinity, count * ROW_HEIGHT + BUTTONS_H);
+                            const isVirt = obj.part && obj.part.data && obj.part.data.isVirtualized;
+                            // Small nodes: minimal buffer (+4). Large virtualized: generous buffer (+50).
+                            const buffer = isVirt ? 50 : 4;
+                            return new go.Size(Infinity, count * ROW_HEIGHT + BUTTONS_H + buffer);
                         }),
                         new go.Binding("TABLE.itemArray", "visibleItems"),
                         {
@@ -166,12 +169,12 @@
                                             if (!node || !node.data) return true;
                                             const nData = node.data;
                                             if (!nData.isVirtualized) return true;
-                                            
+
                                             const fullIndex = nData.indexMap.get(data);
                                             const metrics = getViewportMetrics(node);
                                             const windowStart = nData.startIndex || 0;
                                             const windowEnd = windowStart + metrics.capacity;
-                                            
+
                                             // Only show the row contents if it's within the viewport's capacity range
                                             return (fullIndex >= windowStart && fullIndex < windowEnd);
                                         }),
@@ -193,13 +196,34 @@
                                                 if (node && attrData) {
                                                     const state = globalNodeState.get(node.key);
                                                     if (state) {
-                                                        if (state.activeFilters.has(attrData.name)) {
-                                                            state.activeFilters.delete(attrData.name);
+                                                        const model = diagram.model;
+                                                        model.startTransaction("toggle filter");
+                                                        const attrName = attrData.name;
+                                                        const filterActive = !state.activeFilters.has(attrName);
+                                                        
+                                                        if (filterActive) {
+                                                            state.activeFilters.add(attrName);
                                                         } else {
-                                                            state.activeFilters.add(attrData.name);
+                                                            state.activeFilters.delete(attrName);
                                                         }
-                                                        diagram.model.updateTargetBindings(attrData);
-                                                        diagram.requestUpdate();
+
+                                                        // Refresh only the window because the "Always Rendered" set changed
+                                                        const table = node.findObject("TABLE");
+                                                        const currentTop = node.data.startIndex + (table ? table.topIndex : 0);
+                                                        updateWindow(node, currentTop + BUFFER);
+
+                                                        // Refresh bindings for the node data (to update visibleItems)
+                                                        model.updateTargetBindings(node.data);
+                                                        
+                                                        // CRITICAL: Force update and synchronize topIndex to prevent jump
+                                                        if (table) {
+                                                            table.topIndex = Math.max(0, currentTop - node.data.startIndex);
+                                                        }
+                                                        
+                                                        // Refresh the specific row's bindings to show the new filter state
+                                                        model.updateTargetBindings(attrData);
+                                                        
+                                                        model.commitTransaction("toggle filter");
                                                     }
                                                 }
                                             }
@@ -295,18 +319,25 @@
 
             // 2. ALSO ALWAYS ADD ITEMS THAT HAVE CONNECTED LINKS
             node.findLinksConnected().each(link => {
-                // Determine which port ID belongs to this node
                 const portId = (link.fromNode === node) ? link.fromPortId : link.toPortId;
                 if (portId) {
-                    // Find the attribute in the full master list
                     const item = full.find(i => i.name === portId);
-                    if (item) {
-                        visibleMap.set(item, item);
-                    }
+                    if (item) visibleMap.set(item, item);
                 }
             });
 
-            // 3. Sort based on original position in the master list
+            // 3. ALSO ALWAYS ADD ITEMS THAT HAVE ACTIVE FILTERS
+            const state = globalNodeState.get(node.key);
+            if (state && state.activeFilters) {
+                state.activeFilters.forEach(attrName => {
+                    const item = full.find(i => i.name === attrName);
+                    if (item) {
+                        visibleMap.set(item, item);
+                    }
+                });
+            }
+
+            // 4. Sort based on original position in the master list
             const itemToIndex = nodeData.indexMap;
             const sorted = Array.from(visibleMap.values()).sort((a, b) => {
                 return itemToIndex.get(a) - itemToIndex.get(b);
@@ -411,6 +442,7 @@
                     const down = scroller.findObject("DOWN");
                     if (up && down) BUTTONS_H = up.actualBounds.height + down.actualBounds.height;
                 }
+                // Force all nodes to re-calculate their maxSize and default size now that we have real values
                 diagram.updateAllTargetBindings("fullItems");
             }
 
@@ -509,29 +541,59 @@
         });
 
         diagram.addDiagramListener("PartResized", (e) => {
-            const obj = e.subject;
+            const obj = e.subject; // the SCROLLER
             if (obj.name === "SCROLLER") {
                 const node = obj.part;
                 const table = obj.findObject("TABLE");
                 if (!node || !table) return;
 
                 diagram.model.startTransaction("resize scroll");
-                const snappedH = Math.round(obj.actualBounds.height / ROW_HEIGHT) * ROW_HEIGHT;
-                obj.height = snappedH;
+
+                // 1. Snapping logic (Accounting for scrollbar buttons)
+                const currentH = obj.actualBounds.height;
+                const contentH = currentH - BUTTONS_H;
+                const snappedContentH = Math.round(contentH / ROW_HEIGHT) * ROW_HEIGHT;
+                const snappedH = snappedContentH + BUTTONS_H;
+
+                if (Math.abs(currentH - snappedH) > 0.1) {
+                    obj.height = snappedH;
+                }
                 node.ensureBounds();
 
                 if (node.data.isVirtualized) {
-                    const metrics = getViewportMetrics(node);
+                    // 2. VIRTUALIZED NODES: Recalculate window and align
+                    const trackH = snappedH - BUTTONS_H;
+                    const newMetrics = getViewportMetrics(node, trackH);
                     const currentTopIndex = node.data.startIndex + table.topIndex;
-                    const targetTopIndex = Math.min(currentTopIndex, Math.max(0, node.data.fullItems.length - metrics.capacity));
+                    const newMaxIndex = Math.max(0, node.data.fullItems.length - newMetrics.capacity);
+                    const targetTopIndex = Math.min(currentTopIndex, newMaxIndex);
 
                     updateWindow(node, targetTopIndex + BUFFER);
                     diagram.updateAllTargetBindings("visibleItems");
                     table.topIndex = Math.max(0, targetTopIndex - node.data.startIndex);
                     updateVirtualScrollBar(node);
+                } else {
+                    // 3. STANDARD NODES: Just align scrollbar
+                    if (obj._updateScrollBar) obj._updateScrollBar(table);
                 }
+
                 node.invalidateConnectedLinks();
+                // Persist the size
+                diagram.model.setDataProperty(node.data, "size", go.Size.stringify(obj.actualBounds.size));
                 diagram.model.commitTransaction("resize scroll");
+
+                // Dual-pass sync to catch any rendering lag
+                if (node.data.isVirtualized) {
+                    const latestTrackH = obj.actualBounds.height - BUTTONS_H;
+                    const latestMetrics = getViewportMetrics(node, latestTrackH);
+                    const newMaxIndex = Math.max(0, node.data.fullItems.length - latestMetrics.capacity);
+                    const targetTopIndex = Math.min(node.data.startIndex + table.topIndex, newMaxIndex);
+                    
+                    updateWindow(node, targetTopIndex + BUFFER);
+                    diagram.updateAllTargetBindings("visibleItems");
+                    table.topIndex = Math.max(0, targetTopIndex - node.data.startIndex);
+                    updateVirtualScrollBar(node);
+                }
             }
         });
 
@@ -556,12 +618,44 @@
 
         nodeDataArray.forEach(n => {
             const full = n.fullItems || [];
-            globalNodeState.set(n.key, { fullItems: full, activeFilters: new Set() });
+
+            const nodeState = {
+                fullItems: full,
+                activeFilters: new Set()
+            };
+
+            // INITIAL FILTERS:
+            // 1. Common: Rows 6 and 7 (indices 5, 6) for all nodes
+            [5, 6].forEach(idx => {
+                if (full[idx]) nodeState.activeFilters.add(full[idx].name);
+            });
+
+            // 2. Node-specific variety
+            const variety = {
+                "Products": [0, 10, 20],
+                "Suppliers": [2, 12, 22],
+                "Store": [4, 14, 24],
+                "Inventory": [8, 18, 28]
+            };
+            (variety[n.key] || []).forEach(idx => {
+                if (full[idx]) nodeState.activeFilters.add(full[idx].name);
+            });
+
+            globalNodeState.set(n.key, nodeState);
+
             n.isVirtualized = (full.length > 200);
             n.indexMap = new Map();
             full.forEach((item, idx) => n.indexMap.set(item, idx));
             n.startIndex = 0;
             n.visibleItems = []; // filled by InitialLayoutCompleted -> updateWindow
+
+            // Finalizing Initial Size:
+            const contentH = full.length * ROW_HEIGHT + BUTTONS_H;
+            if (!n.isVirtualized && contentH < 300) {
+                n.size = `250 ${contentH + 2}`; // Almost exact fit
+            } else {
+                n.size = "250 300";
+            }
         });
 
         function exportState() {
