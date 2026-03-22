@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <title>Test Virtualized Diagram Module</title>
+    <title>Test Virtualized Diagram Module 2 (attempt2 logic)</title>
     <!-- Load GoJS and the ScrollingTable extension first -->
     <script src="https://unpkg.com/gojs/release/go.js"></script>
     <script src="ScrollingTable.js"></script>
@@ -40,17 +40,6 @@
             height: 100%;
         }
 
-        #info {
-            position: fixed;
-            top: 10px;
-            left: 10px;
-            background: rgba(255, 255, 255, 0.8);
-            padding: 10px;
-            z-index: 10;
-            font-family: sans-serif;
-            border: 1px solid #ccc;
-        }
-
         #saveBtn {
             position: fixed;
             top: 20px;
@@ -80,7 +69,7 @@
     <button id="saveBtn">Save & Log State</button>
 
     <script type="module">
-        import InitDiagram, { globalNodeState } from './InitDiagramVirtualized.js';
+        import InitDiagram, { globalNodeState } from './InitDiagramVirtualized2.js';
 
         // 1. Initialize the Diagram
         const diagram = InitDiagram({ linkPresent: true });
@@ -100,17 +89,20 @@
 
         function prepareNodeData(n) {
             const full = n.fullItems || [];
+            n.id = n.key; // For getOrCreateNodeState compatibility
             n.isVirtualized = (full.length > 200);
             n.indexMap = new Map();
             full.forEach((item, idx) => n.indexMap.set(item, idx));
             n.startIndex = 0;
-            n.visibleItems = n.isVirtualized ? full.slice(0, 60) : full;
+            n.visibleItems = []; // Initial items filled by InitialLayoutCompleted updateWindow
             
-            // Calculate initial size to support TwoWay binding and manual resizing
-            const count = full.length;
-            const contentH = count * 26 + 34; // ROW_HEIGHT=26, BUTTONS_H=34
-            const initialH = n.isVirtualized ? 300 : Math.min(300, contentH);
-            n.size = go.Size.stringify(new go.Size(250, initialH));
+            // Initial size logic from attempt2.html
+            const contentH = full.length * 26 + 34; // ROW_HEIGHT=26, BUTTONS_H=34
+            if (!n.isVirtualized && contentH < 300) {
+                n.size = go.Size.stringify(new go.Size(250, contentH + 2));
+            } else {
+                n.size = go.Size.stringify(new go.Size(250, 300));
+            }
             
             return n;
         }
@@ -121,7 +113,7 @@
                 const state = {
                     activeFilters: new Set()
                 };
-                globalNodeState.set(n.id, state);
+                globalNodeState.set(n.key, state);
 
                 // 1. Common: Rows 6 and 7 (indices 5, 6) for all nodes
                 [5, 6].forEach(idx => {
@@ -135,7 +127,7 @@
                     "Store": [4, 14, 24],
                     "Inventory": [8, 18, 28]
                 };
-                (variety[n.id] || []).forEach(idx => {
+                (variety[n.key] || []).forEach(idx => {
                     if (full[idx]) state.activeFilters.add(full[idx].name);
                 });
             });
@@ -146,19 +138,19 @@
             globalNodeState.forEach((state, key) => {
                 exported[key] = Array.from(state.activeFilters);
             });
-            console.log("Current Filter State:", exported);
+            console.log("Current Filter State (attempt2 logic):", exported);
             alert("State exported to browser console!\nCheck console for details.");
         }
 
         document.getElementById("saveBtn").onclick = exportState;
 
-        // 3. Define Test Data (matches attempt.html exactly)
+        // 3. Define Test Data (matches attempt2.html exactly)
         const nodeDataArray = [
-            prepareNodeData({ id: "Products", key: "Products", fullItems: generateAttributes("products", 3000), loc: "0 0" }),
-            prepareNodeData({ id: "Suppliers", key: "Suppliers", fullItems: generateAttributes("suppliers", 1500), loc: "0 350" }),
-            prepareNodeData({ id: "Store", key: "Store", fullItems: generateAttributes("store", 50), loc: "0 700" }),
-            prepareNodeData({ id: "Warehouse", key: "Warehouse", fullItems: generateAttributes("warehouse", 3), loc: "0 1050" }),
-            prepareNodeData({ id: "Inventory", key: "Inventory", fullItems: generateAttributes("inv", 3000), loc: "500 350" })
+            prepareNodeData({ key: "Products", fullItems: generateAttributes("products", 3000), loc: "0 0" }),
+            prepareNodeData({ key: "Suppliers", fullItems: generateAttributes("suppliers", 1500), loc: "400 0" }),
+            prepareNodeData({ key: "Store", fullItems: generateAttributes("store", 50), loc: "800 0" }),
+            prepareNodeData({ key: "Warehouse", fullItems: generateAttributes("warehouse", 3), loc: "0 400" }),
+            prepareNodeData({ key: "Inventory", fullItems: generateAttributes("inv", 3000), loc: "400 400" })
         ];
 
         const linkDataArray = [

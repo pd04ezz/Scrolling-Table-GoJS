@@ -21,14 +21,15 @@ function getOrCreateNodeState(key) {
 
 /**
  * Initializes the gojs diagram with virtualized scrolling table support.
+ * Specifically configured for attempt2.html logic (LayeredDigraphLayout).
  */
 
 const $ = go.GraphObject.make;
 
-// ICONS from attempt.html
+// ICONS
 const ICN_NODE = "M 8.4101562 0 L 5.7792969 3.3007812 L 7.7890625 3.2597656 L 7.890625 6.640625 L 9.25 6.609375 L 9.1699219 3.9609375 L 9.1503906 3.2304688 L 11.169922 3.1894531 L 8.4101562 0 z M 10.050781 4.4101562 L 10.050781 5.9101562 L 13.919922 8.0605469 L 8.9804688 10.910156 L 4.0390625 8.0605469 L 7.0097656 6.4101562 L 7.0097656 4.9101562 L 2.4199219 7.4609375 C 2.1099219 7.6309375 1.9199219 7.9490625 1.9199219 8.2890625 L 1.9199219 15.019531 C 1.9199219 15.359531 2.1099219 15.679609 2.4199219 15.849609 L 3.1992188 16.289062 L 4.3105469 15.419922 L 3.2304688 14.820312 L 3.2304688 9.0996094 L 8.3300781 12.039062 L 8.3300781 17.660156 L 7.1992188 17.029297 L 6.0898438 17.900391 L 8.4902344 19.230469 C 8.6502344 19.320469 8.8102344 19.359375 8.9902344 19.359375 C 9.1702344 19.359375 9.3302344 19.320469 9.4902344 19.230469 L 11.679688 18.009766 L 10.650391 17.080078 L 9.640625 17.640625 L 9.6308594 17.630859 L 9.6308594 12.009766 L 14.730469 9.0703125 L 14.730469 14.789062 L 13.550781 15.449219 L 14.580078 16.369141 L 15.529297 15.839844 C 15.839297 15.669844 16.029297 15.349766 16.029297 15.009766 L 16.029297 8.2792969 C 16.029297 7.9392969 15.839297 7.6192187 15.529297 7.4492188 L 10.050781 4.4101562 z M 5.0195312 15.800781 L 2.0800781 18.390625 L 0.7890625 16.830078 L 0 20.980469 L 4.2207031 21 L 2.9296875 19.439453 L 6.1699219 16.470703 L 6.1894531 16.480469 L 5.0195312 15.800781 z M 12.570312 15.880859 L 11.400391 16.679688 L 14.580078 19.419922 L 13.269531 20.949219 L 17.490234 21.019531 L 17.480469 21 L 16.779297 16.839844 L 15.470703 18.369141 L 12.570312 15.880859 z ";
 const ICN_FILTER = "M 0.34765625 0 L 0.33789062 0.009765625 C 0.20789062 0.009765625 0.0890625 0.0909375 0.0390625 0.2109375 C -0.0209375 0.3309375 -0.011640625 0.47984375 0.068359375 0.58984375 L 5.6191406 8.7109375 L 5.6191406 13.039062 C 5.6191406 13.139063 5.6680469 13.250312 5.7480469 13.320312 L 8.8183594 15.929688 C 8.9183594 16.009687 9.0577344 16.030703 9.1777344 15.970703 C 9.2977344 15.900703 9.3691406 15.780625 9.3691406 15.640625 L 9.3691406 8.6992188 L 14.927734 0.58007812 C 15.007734 0.47007813 15.018984 0.31921875 14.958984 0.19921875 C 14.908984 0.07921875 14.788203 0 14.658203 0 L 0.34765625 0 z ";
-const ICN_MEASURE = "M 0 0 L 0 21 L 21 21 L 21 0 L 0 0 z M 1.5898438 1.5898438 L 9.7109375 1.5898438 L 9.7109375 9.6992188 L 1.5898438 9.6992188 L 1.5898438 1.5898438 z M 11.289062 1.5898438 L 19.410156 1.5898438 L 19.410156 9.6992188 L 11.289062 9.6992188 L 11.289062 1.5898438 z M 1.5898438 11.289062 L 9.7109375 11.289062 L 9.7109375 19.400391 L 1.5898438 19.400391 L 1.5898438 11.289062 z M 11.289062 11.289062 L 19.410156 11.289062 L 19.410156 19.400391 L 11.289062 19.400391 L 11.289062 11.289062 z ";
+const ICN_MEASURE = "M 0 0 L 1.5898438 1.5898438 L 9.7109375 1.5898438 L 9.7109375 9.6992188 L 1.5898438 9.6992188 L 1.5898438 1.5898438 z M 11.289062 1.5898438 L 19.410156 1.5898438 L 19.410156 9.6992188 L 11.289062 9.6992188 L 11.289062 1.5898438 z M 1.5898438 11.289062 L 9.7109375 11.289062 L 9.7109375 19.400391 L 1.5898438 19.400391 L 1.5898438 11.289062 z M 11.289062 11.289062 L 19.410156 11.289062 L 19.410156 19.400391 L 11.289062 19.400391 L 11.289062 11.289062 z ";
 const ICN_NUM = "M 5.3808594 0 L 4.4101562 7.1992188 L 0.90039062 7.1992188 L 0.90039062 8.9199219 L 4.140625 8.9199219 L 3.3691406 14.890625 L 0 14.890625 L 0 16.609375 L 3.0996094 16.609375 L 3.0996094 16.720703 L 2.1308594 24 L 3.859375 24 L 4.8398438 16.609375 L 9.2304688 16.609375 L 9.2304688 16.720703 L 8.2597656 24 L 9.9902344 24 L 10.960938 16.609375 L 14.470703 16.609375 L 14.470703 14.890625 L 11.230469 14.890625 L 11.230469 14.779297 L 11.970703 8.9199219 L 15.339844 8.9199219 L 15.339844 7.1992188 L 12.240234 7.1992188 L 13.169922 0 L 11.470703 0 L 10.5 7.1992188 L 6.109375 7.1992188 L 7.0390625 0 L 5.3808594 0 z M 5.8691406 8.9199219 L 10.259766 8.9199219 L 9.4902344 14.890625 L 5.0996094 14.890625 L 5.8691406 8.9199219 z ";
 const ICN_STR = "M 8.359375 0 L 8.359375 10.279297 L 10.169922 10.279297 L 10.169922 9.1894531 C 10.469922 9.6094531 10.820469 9.9208594 11.230469 10.130859 C 11.640469 10.340859 12.060469 10.449219 12.480469 10.449219 C 13.340469 10.449219 14.069922 10.109922 14.669922 9.4199219 C 15.269922 8.7299219 15.570313 7.7504687 15.570312 6.4804688 C 15.570312 5.2104688 15.279453 4.3103906 14.689453 3.6503906 C 14.099453 2.9903906 13.360938 2.6601562 12.460938 2.6601562 L 12.449219 2.6601562 C 11.629219 2.6601562 10.910547 3.0092187 10.310547 3.6992188 L 10.310547 0 L 8.359375 0 z M 20.630859 2.6503906 C 19.530859 2.6503906 18.659531 2.9896875 18.019531 3.6796875 C 17.369531 4.3596875 17.050781 5.3307813 17.050781 6.5507812 C 17.050781 7.7707812 17.369766 8.7201563 18.009766 9.4101562 C 18.649766 10.100156 19.509844 10.439453 20.589844 10.439453 C 21.539844 10.439453 22.289375 10.209766 22.859375 9.7597656 C 23.429375 9.3097656 23.809766 8.64 24.009766 7.75 L 24.019531 7.7402344 L 22.099609 7.4101562 C 21.999609 7.9301563 21.839609 8.2997656 21.599609 8.5097656 C 21.359609 8.7197656 21.059453 8.8300781 20.689453 8.8300781 C 20.199453 8.8300781 19.799766 8.6392969 19.509766 8.2792969 C 19.219766 7.9192969 19.070312 7.2901562 19.070312 6.4101562 C 19.070312 5.6201562 19.21 5.0509375 19.5 4.7109375 C 19.79 4.3709375 20.170156 4.1992188 20.660156 4.1992188 C 21.020156 4.1992187 21.320781 4.2902344 21.550781 4.4902344 C 21.780781 4.6902344 21.920234 4.9791406 21.990234 5.3691406 L 23.910156 5.0195312 C 23.680156 4.2295312 23.299531 3.6302344 22.769531 3.2402344 C 22.239531 2.8502344 21.530859 2.6503906 20.630859 2.6503906 z M 3.4101562 2.6699219 C 2.4501563 2.6699219 1.7302344 2.8394531 1.2402344 3.1894531 C 0.75023438 3.5394531 0.4109375 4.0690625 0.2109375 4.7890625 L 1.9804688 5.109375 C 2.1004688 4.759375 2.2592187 4.5208594 2.4492188 4.3808594 C 2.6392187 4.2408594 2.9197656 4.1699219 3.2597656 4.1699219 C 3.7697656 4.1699219 4.1205469 4.2501562 4.3105469 4.4101562 C 4.4905469 4.5701563 4.5898438 4.8407031 4.5898438 5.2207031 L 4.5898438 5.4199219 C 4.2398438 5.5699219 3.5994531 5.7303906 2.6894531 5.9003906 C 2.0094531 6.0303906 1.500625 6.179375 1.140625 6.359375 C 0.780625 6.539375 0.50078125 6.7891406 0.30078125 7.1191406 C 0.10078125 7.4491406 -3.7007434e-017 7.82 0 8.25 C 0 8.89 0.22015625 9.4100781 0.66015625 9.8300781 C 1.1001563 10.250078 1.7009375 10.449219 2.4609375 10.449219 C 2.8909375 10.449219 3.2996875 10.369219 3.6796875 10.199219 C 4.0596875 10.039219 4.42 9.7909375 4.75 9.4609375 C 4.76 9.5009375 4.7903125 9.5694531 4.8203125 9.6894531 C 4.8903125 9.9494531 4.9597656 10.139531 5.0097656 10.269531 L 6.9394531 10.269531 C 6.7694531 9.9095313 6.6498437 9.5795312 6.5898438 9.2695312 C 6.530186 8.9612993 6.5003403 8.4842726 6.5 7.8300781 L 6.5 7.8222656 C 6.4999999 7.8215132 6.5 7.8210654 6.5 7.8203125 L 6.5195312 5.5292969 C 6.5195312 4.6692969 6.4297656 4.0895313 6.2597656 3.7695312 C 6.0897656 3.4495313 5.789375 3.1904688 5.359375 2.9804688 C 4.929375 2.7704688 4.2801563 2.6699219 3.4101562 2.6699219 z M 11.939453 4.1699219 C 12.409453 4.1699219 12.809375 4.3604687 13.109375 4.7304688 C 13.419375 5.1104687 13.570312 5.7203125 13.570312 6.5703125 C 13.570312 7.3703125 13.419375 7.9600781 13.109375 8.3300781 C 12.809375 8.7000781 12.439766 8.890625 12.009766 8.890625 C 11.449766 8.890625 11.000156 8.6296094 10.660156 8.0996094 C 10.420156 7.7296094 10.300781 7.160625 10.300781 6.390625 C 10.300781 5.620625 10.459531 5.0807031 10.769531 4.7207031 C 11.079531 4.3607031 11.469453 4.1699219 11.939453 4.1699219 z M 4.5800781 6.6992188 L 4.5800781 7.0898438 L 4.5996094 7.0898438 C 4.5996094 7.5598437 4.5695313 7.8807813 4.5195312 8.0507812 C 4.4495313 8.3107812 4.2907813 8.5192188 4.0507812 8.6992188 C 3.7307813 8.9292188 3.3890625 9.0507812 3.0390625 9.0507812 C 2.7190625 9.0507812 2.4697656 8.95 2.2597656 8.75 C 2.0597656 8.55 1.9492188 8.3092969 1.9492188 8.0292969 C 1.9492188 7.7492969 2.0800781 7.5198437 2.3300781 7.3398438 C 2.5000781 7.2298438 2.850625 7.11 3.390625 7 C 3.930625 6.88 4.3300781 6.7792187 4.5800781 6.6992188 z ";
 
@@ -40,12 +41,12 @@ const BUFFER = 40;
 /**
  * HELPER: Calculates viewport metrics for a node
  */
-function getViewportMetrics(node) {
+function getViewportMetrics(node, forcedHeight) {
     const table = node.findObject("TABLE");
     const bar = node.findObject("SCROLLBAR");
     if (!bar || !table) return { capacity: 60, windowSize: 60 + BUFFER * 2 };
 
-    const availH = bar.actualBounds.height || 200;
+    const availH = forcedHeight || bar.actualBounds.height || 200;
     const capacity = Math.max(1, Math.floor(availH / ROW_HEIGHT));
     return {
         capacity: capacity,
@@ -71,7 +72,7 @@ function updateWindow(node, centerIndex) {
         // 2. VIRTUALIZED: Add items within the viewport (plus buffer)
         const metrics = getViewportMetrics(node);
         const { windowSize, capacity } = metrics;
-        nodeData.capacity = capacity; // STORE CAPACITY
+        nodeData.capacity = capacity; // STORE CAPACITY AS SOURCE OF TRUTH
         
         let start = centerIndex - BUFFER;
         start = Math.max(0, start);
@@ -93,7 +94,7 @@ function updateWindow(node, centerIndex) {
         });
 
         // 2c. ALSO ALWAYS ADD ITEMS THAT HAVE ACTIVE FILTERS
-        const state = globalNodeState.get(node.key);
+        const state = getOrCreateNodeState(node.key);
         if (state && state.activeFilters) {
             state.activeFilters.forEach(attrName => {
                 const item = full.find(i => i.name === attrName);
@@ -128,7 +129,7 @@ function updateVirtualScrollBar(node) {
     const fullLength = data.fullItems ? data.fullItems.length : 0;
     if (fullLength === 0) return;
 
-    const capacity = data.capacity || 10;
+    const capacity = data.capacity || getViewportMetrics(node).capacity;
     const globalTopIndex = data.startIndex + table.topIndex;
 
     const maxGlobalTopIndex = Math.max(0, fullLength - capacity);
@@ -163,7 +164,7 @@ function virtualScrollBy(node, delta) {
     const currentGlobalIndex = data.startIndex + table.topIndex;
     const targetGlobalIndex = currentGlobalIndex + delta;
 
-    const capacity = data.capacity || 10;
+    const capacity = data.capacity || getViewportMetrics(node).capacity;
     const maxGlobalIndex = Math.max(0, data.fullItems.length - capacity);
     const constrainedIndex = Math.max(0, Math.min(targetGlobalIndex, maxGlobalIndex));
 
@@ -179,16 +180,6 @@ function virtualScrollBy(node, delta) {
 
     updateVirtualScrollBar(node);
     node.invalidateConnectedLinks();
-    refreshLinksForNode(node);
-}
-
-/**
- * HELPER: Refreshes links after scrolling
- */
-function refreshLinksForNode(node) {
-    node.findLinksConnected().each(link => {
-        node.diagram.model.updateTargetBindings(link.data);
-    });
 }
 
 /**
@@ -226,14 +217,13 @@ const _addDiagramEvents = (diagram) => {
             const scroller = node.findObject("SCROLLER");
             if (!scroller) return;
 
-            if (node.data.isVirtualized) {
-                // 1. Force the initial window of data (visibleItems) to be populated for EVERY node
-                diagram.model.startTransaction("initial update");
-                updateWindow(node, 0);
-                diagram.model.updateTargetBindings(node.data);
-                diagram.model.commitTransaction("initial update");
+            // 1. Force the initial window of data (visibleItems) to be populated for EVERY node
+            diagram.model.startTransaction("initial update");
+            updateWindow(node, 0);
+            diagram.model.updateTargetBindings(node.data);
+            diagram.model.commitTransaction("initial update");
 
-                // 2. Virtual Scrollbar logic
+            if (node.data.isVirtualized) {
                 updateVirtualScrollBar(node);
 
                 scroller._updateScrollBar = () => updateVirtualScrollBar(node);
@@ -267,7 +257,6 @@ const _addDiagramEvents = (diagram) => {
                         diagram.model.commitTransaction("thumb drag");
 
                         node.invalidateConnectedLinks();
-                        refreshLinksForNode(node);
                         diagram.requestUpdate();
                     };
                 }
@@ -292,7 +281,6 @@ const _addDiagramEvents = (diagram) => {
                         updateVirtualScrollBar(node);
                         diagram.model.commitTransaction("bar click");
                         node.invalidateConnectedLinks();
-                        refreshLinksForNode(node);
                     };
                 }
 
@@ -417,13 +405,13 @@ function InitDiagram({ linkPresent }) {
         hasVerticalScrollbar: false,
         "undoManager.isEnabled": true,
         "undoManager.maxHistoryLength": 0,
-        layout: linkPresent ? new go.LayeredDigraphLayout({
+        layout: $(go.LayeredDigraphLayout, {
             direction: 0,
             layerSpacing: 200,
             columnSpacing: 10,
             setsPortSpots: false,
-            isOngoing: false
-        }) : new go.GridLayout({ spacing: go.Size.parse("150, 50"), isOngoing: false }),
+            isOngoing: false 
+        }),
         "toolManager.mouseWheelBehavior": go.ToolManager.WheelZoom,
         "draggingTool.isCopyEnabled": false,
         "allowCopy": false,
@@ -454,7 +442,7 @@ function InitDiagram({ linkPresent }) {
     _addDiagramEvents(diagram);
     _addModelChangedListener(diagram);
 
-    // NODE TEMPLATE from attempt.html
+    // NODE TEMPLATE
     diagram.nodeTemplate =
         $(go.Node, "Auto",
             {
@@ -498,17 +486,17 @@ function InitDiagram({ linkPresent }) {
                         const items = data.fullItems;
                         const count = items ? items.length : 0;
                         const contentH = count * ROW_HEIGHT + BUTTONS_H;
-                        const isVirt = data.isVirtualized;
-                        if (!isVirt && contentH < 300) {
+                        // For attempt2 logic, we keep the same initial shrink behavior but SNAPPED
+                        if (!data.isVirtualized && contentH < 300) {
                             const snappedFitH = Math.round((contentH - BUTTONS_H) / ROW_HEIGHT) * ROW_HEIGHT + BUTTONS_H;
                             return new go.Size(250, snappedFitH + 4);
                         }
                         const snappedDefaultH = Math.round((300 - BUTTONS_H) / ROW_HEIGHT) * ROW_HEIGHT + BUTTONS_H;
                         return new go.Size(250, snappedDefaultH + 4);
                     }).makeTwoWay(go.Size.stringify),
-                    new go.Binding("maxSize", "fullItems", (items) => {
+                    new go.Binding("maxSize", "fullItems", (items, obj) => {
                         const count = items ? items.length : 0;
-                        return new go.Size(Infinity, count * ROW_HEIGHT + BUTTONS_H);
+                        return new go.Size(Infinity, (count * ROW_HEIGHT) + BUTTONS_H + 60);
                     }),
                     new go.Binding("TABLE.itemArray", "visibleItems"),
                     {
@@ -522,7 +510,7 @@ function InitDiagram({ linkPresent }) {
                                 },
                                 new go.Binding("portId", "name"),
 
-                                    $(go.Panel, "Horizontal",
+                                $(go.Panel, "Horizontal",
                                     { column: 0, margin: new go.Margin(6, 5, 6, 10) },
                                     new go.Binding("visible", "", (data, obj) => {
                                         const node = obj.part;
@@ -624,63 +612,13 @@ function InitDiagram({ linkPresent }) {
             )
         );
 
-    // LINK TEMPLATE from attempt.html
+    // LINK TEMPLATE
     diagram.linkTemplate =
         $(go.Link,
-            new go.Binding("fromSpot", "", (linkData, link) => {
-                const fromNode = link.fromNode;
-                if (!fromNode || !fromNode.data.isVirtualized) return go.Spot.Right;
-                const port = fromNode.findPort(linkData.fromPort);
-                if (!port || port === fromNode) {
-                    const full = fromNode.data.fullItems;
-                    const idx = full ? full.findIndex(i => i.name === linkData.fromPort) : -1;
-                    const globalTop = fromNode.data.startIndex + (fromNode.findObject("TABLE")?.topIndex || 0);
-                    const scroller = fromNode.findObject("SCROLLER");
-                    const nodeH = fromNode.actualBounds.height;
-                    if (scroller && nodeH > 0) {
-                        const scrollerDocPt = scroller.getDocumentPoint(go.Spot.TopLeft);
-                        const nodeDocPt = fromNode.getDocumentPoint(go.Spot.TopLeft);
-                        const scrollerTopY = (scrollerDocPt.y - nodeDocPt.y) / nodeH;
-                        const scrollerBottomY = (scrollerDocPt.y + scroller.actualBounds.height - nodeDocPt.y) / nodeH;
-                        if (idx < globalTop) return new go.Spot(1, scrollerTopY);
-                        return new go.Spot(1, scrollerBottomY);
-                    }
-                    if (idx < globalTop) return go.Spot.TopRight;
-                    return go.Spot.BottomRight;
-                }
-                return go.Spot.Right;
-            }),
-            new go.Binding("toSpot", "", (linkData, link) => {
-                const toNode = link.toNode;
-                if (!toNode || !toNode.data.isVirtualized) return go.Spot.Left;
-                const port = toNode.findPort(linkData.toPort);
-                if (!port || port === toNode) {
-                    const full = toNode.data.fullItems;
-                    const idx = full ? full.findIndex(i => i.name === linkData.toPort) : -1;
-                    const globalTop = toNode.data.startIndex + (toNode.findObject("TABLE")?.topIndex || 0);
-                    const scroller = toNode.findObject("SCROLLER");
-                    const nodeH = toNode.actualBounds.height;
-                    if (scroller && nodeH > 0) {
-                        const scrollerDocPt = scroller.getDocumentPoint(go.Spot.TopLeft);
-                        const nodeDocPt = toNode.getDocumentPoint(go.Spot.TopLeft);
-                        const scrollerTopY = (scrollerDocPt.y - nodeDocPt.y) / nodeH;
-                        const scrollerBottomY = (scrollerDocPt.y + scroller.actualBounds.height - nodeDocPt.y) / nodeH;
-                        if (idx < globalTop) return new go.Spot(0, scrollerTopY);
-                        return new go.Spot(0, scrollerBottomY);
-                    }
-                    if (idx < globalTop) return go.Spot.TopLeft;
-                    return go.Spot.BottomLeft;
-                }
-                return go.Spot.Left;
-            }),
-            new go.Binding("fromEndSegmentLength", "", (linkData, link) => {
-                const fromNode = link.fromNode;
-                if (!fromNode || !fromNode.data.isVirtualized) return 10;
-                const port = fromNode.findPort(linkData.fromPort);
-                return (!port || port === fromNode) ? 0 : 10;
-            }),
-            new go.Binding("toEndSegmentLength", "", () => 15),
-
+            {
+                fromSpot: go.Spot.Right,
+                toSpot: go.Spot.Left
+            },
             $(go.Shape, { strokeWidth: 1, stroke: "#999" }),
             $(go.Shape, { toArrow: "Standard", stroke: null, fill: "#999" }),
 

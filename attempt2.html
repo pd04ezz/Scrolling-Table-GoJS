@@ -91,6 +91,18 @@
                     "animationManager.isEnabled": false
                 });
 
+        // OVERRIDE ResizingTool to snap during drag
+        diagram.toolManager.resizingTool.computeResizing = function (box, min, max, cell, resizable, reshape, symmetric) {
+            let result = go.ResizingTool.prototype.computeResizing.call(this, box, min, max, cell, resizable, reshape, symmetric);
+            if (this.adornedObject && this.adornedObject.name === "SCROLLER") {
+                const h = result.height;
+                const contentH = h - BUTTONS_H;
+                const snappedContentH = Math.round(contentH / ROW_HEIGHT) * ROW_HEIGHT;
+                result.height = snappedContentH + BUTTONS_H + 4; // Add buffer to prevent cut-off
+            }
+            return result;
+        };
+
         /* ---------------- DYNAMIC VIEWPORT HELPER ---------------- */
         function getViewportMetrics(node, forcedHeight) {
             const table = node.findObject("TABLE");
@@ -142,13 +154,26 @@
                             desiredSize: new go.Size(250, 300),
                             stretch: go.Stretch.Fill
                         },
-                        new go.Binding("desiredSize", "size", go.Size.parse).makeTwoWay(go.Size.stringify),
+                        new go.Binding("desiredSize", "size", (s, obj) => {
+                            if (s) return go.Size.parse(s);
+                            const node = obj.part;
+                            const data = node ? node.data : null;
+                            if (!data) return new go.Size(250, 300);
+                            const items = data.fullItems;
+                            const count = items ? items.length : 0;
+                            const contentH = count * ROW_HEIGHT + BUTTONS_H;
+                            if (!data.isVirtualized && contentH < 300) {
+                                const snappedFitH = Math.round((contentH - BUTTONS_H) / ROW_HEIGHT) * ROW_HEIGHT + BUTTONS_H;
+                                return new go.Size(250, snappedFitH + 4);
+                            }
+                            const snappedDefaultH = Math.round((300 - BUTTONS_H) / ROW_HEIGHT) * ROW_HEIGHT + BUTTONS_H;
+                            return new go.Size(250, snappedDefaultH + 4);
+                        }).makeTwoWay(go.Size.stringify),
                         new go.Binding("maxSize", "fullItems", (items, obj) => {
                             const count = items ? items.length : 0;
-                            const isVirt = obj.part && obj.part.data && obj.part.data.isVirtualized;
-                            // Small nodes: minimal buffer (+4). Large virtualized: generous buffer (+50).
-                            const buffer = isVirt ? 50 : 4;
-                            return new go.Size(Infinity, count * ROW_HEIGHT + BUTTONS_H + buffer);
+                            // Adding a generous buffer (+60) to ensure that even with 
+                            // slight browser rounding differences, all rows always fit.
+                            return new go.Size(Infinity, (count * ROW_HEIGHT) + BUTTONS_H + 60);
                         }),
                         new go.Binding("TABLE.itemArray", "visibleItems"),
                         {
@@ -171,9 +196,10 @@
                                             if (!nData.isVirtualized) return true;
 
                                             const fullIndex = nData.indexMap.get(data);
-                                            const metrics = getViewportMetrics(node);
                                             const windowStart = nData.startIndex || 0;
-                                            const windowEnd = windowStart + metrics.capacity;
+                                            // USE STORED CAPACITY for perfect sync during scroll/resize
+                                            const capacity = nData.capacity || 10;
+                                            const windowEnd = windowStart + capacity;
 
                                             // Only show the row contents if it's within the viewport's capacity range
                                             return (fullIndex >= windowStart && fullIndex < windowEnd);
@@ -301,7 +327,8 @@
             const full = nodeData.fullItems;
             if (!full) return;
 
-            const { windowSize } = getViewportMetrics(node);
+            const { windowSize, capacity } = getViewportMetrics(node);
+            nodeData.capacity = capacity; // STORE CAPACITY
 
             let start = centerIndex - BUFFER;
             start = Math.max(0, start);
@@ -360,10 +387,10 @@
             const fullLength = data.fullItems ? data.fullItems.length : 0;
             if (fullLength === 0) return;
 
-            const metrics = getViewportMetrics(node);
+            const capacity = data.capacity || getViewportMetrics(node).capacity;
             const globalTopIndex = data.startIndex + table.topIndex;
 
-            const maxGlobalTopIndex = Math.max(0, fullLength - metrics.capacity);
+            const maxGlobalTopIndex = Math.max(0, fullLength - capacity);
             const constrainedTopIndex = Math.min(globalTopIndex, maxGlobalTopIndex);
 
             let percentage = 0;
@@ -372,7 +399,7 @@
             }
 
             const availH = bar.actualBounds.height;
-            const ratio = Math.min(1, metrics.capacity / fullLength);
+            const ratio = Math.min(1, capacity / fullLength);
             const thumbH = Math.max(15, ratio * availH);
 
             thumb.height = thumbH;
@@ -392,8 +419,8 @@
             const currentGlobalIndex = data.startIndex + table.topIndex;
             const targetGlobalIndex = currentGlobalIndex + delta;
 
-            const metrics = getViewportMetrics(node);
-            const maxGlobalIndex = Math.max(0, data.fullItems.length - metrics.capacity);
+            const capacity = data.capacity || getViewportMetrics(node).capacity;
+            const maxGlobalIndex = Math.max(0, data.fullItems.length - capacity);
             const constrainedIndex = Math.max(0, Math.min(targetGlobalIndex, maxGlobalIndex));
 
             if (constrainedIndex === currentGlobalIndex && delta !== 0) return;
@@ -553,7 +580,7 @@
                 const currentH = obj.actualBounds.height;
                 const contentH = currentH - BUTTONS_H;
                 const snappedContentH = Math.round(contentH / ROW_HEIGHT) * ROW_HEIGHT;
-                const snappedH = snappedContentH + BUTTONS_H;
+                const snappedH = snappedContentH + BUTTONS_H + 4; // Add buffer
 
                 if (Math.abs(currentH - snappedH) > 0.1) {
                     obj.height = snappedH;
