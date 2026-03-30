@@ -60,6 +60,7 @@
 
         let ROW_HEIGHT = 30; // Fixed Row Height for absolute pixel-perfection
         let BUTTONS_H = 40;  // Default for 2 buttons
+        const BUTTON_SIZE = 15;
         const BUFFER = 40;
 
         function snapToRow(h, rowh) {
@@ -107,10 +108,28 @@
 
         // 2. OVERRIDE computeResizing to snap to rows using STABLE metrics
         resizingTool.computeResizing = function (box, min, max, cell, resizable, reshape, symmetric) {
-            let result = go.ResizingTool.prototype.computeResizing.call(this, box, min, max, cell, resizable, reshape, symmetric);
+            let result = go.ResizingTool.prototype.computeResizing.call(
+                this, box, min, max, cell, resizable, reshape, symmetric
+            );
+
             if (this.adornedObject && this.adornedObject.name === "SCROLLER") {
-                result.height = snapToRow(result.height, this._stableRowH);
+                const rowH = this._stableRowH || ROW_HEIGHT;
+                const btnH = this._stableButtonsH || BUTTONS_H;
+
+                const MIN_ROWS = 8;
+
+                // 🔥 HARD MIN HEIGHT (this stops visual shrinking)
+                // const minHeight = snapToRow((MIN_ROWS * rowH), rowH) + BUTTONS_H;
+                const total = this.adornedObject.part?.data?.fullItems?.length || 0;
+                const minRows = Math.min(8, total);
+                const minHeight = (minRows - 1) * rowH + BUTTONS_H;
+                // Snap to rows
+                let snapped = snapToRow(result.height, rowH);
+
+                // 🚫 Clamp BEFORE rendering
+                result.height = Math.max(minHeight, snapped);
             }
+
             return result;
         };
 
@@ -153,7 +172,7 @@
             const rawH = optH || (scroller ? scroller.actualBounds.height : 300);
             // CRITICAL: Use snapped height for capacity so data always fills the visual box
             const snappedH = snapToRow(rawH, rowh);
-            const capacity = Math.max(1, Math.round(snappedH / rowh));
+            const capacity = Math.max(1, Math.floor(snappedH / rowh));
 
             return {
                 capacity: capacity, // How many rows physically fit
@@ -204,44 +223,60 @@
                         {
                             name: "SCROLLER",
                             desiredSize: new go.Size(250, 300),
+                            minSize: new go.Size(NaN, 200), // temporary, will override dynamically
                             "TABLE.defaultAlignment": go.Spot.TopLeft
                         },
                         new go.Binding("desiredSize", "size", (s, obj) => {
                             if (s) return go.Size.parse(s);
+
                             const node = obj.part;
                             const data = node ? node.data : null;
                             if (!data) return new go.Size(250, 300);
-                            const items = data.fullItems;
-                            const count = items ? items.length : 0;
+
+                            const items = data.fullItems || [];
+                            const count = items.length;
                             const isVirt = data.isVirtualized;
-                            const minScrollerH = Math.max(BUTTONS_H + 15, 85);
+
+                            // ✅ Dynamic min rows (max 8, else exact count)
+                            const minRows = Math.min(8, count);
+
+                            // ✅ Use ROW_HEIGHT (rowh not available here)
+                            const minScrollerH = (minRows -1 )* ROW_HEIGHT + BUTTONS_H;
+
                             if (!isVirt) {
-                                // For small tables, fit to content if smaller than default
                                 const fitH = count * ROW_HEIGHT;
-                                if (fitH < 300) return new go.Size(250, Math.max(fitH, minScrollerH));
+                                const exactH = Math.max(fitH, (Math.min(8, count) - 1) * ROW_HEIGHT + BUTTONS_H);
+                                return new go.Size(250, exactH);
                             }
-                            const snappedDefaultH = Math.max(Math.round(300 / ROW_HEIGHT) * ROW_HEIGHT, minScrollerH);
-                            return new go.Size(250, snappedDefaultH);
+
+                            // ✅ Virtualized → keep default but respect min
+                            const snappedDefaultH = Math.round(300 / ROW_HEIGHT) * ROW_HEIGHT;
+
+                            return new go.Size(
+                                250,
+                                Math.max(snappedDefaultH, minScrollerH)
+                            );
                         }).makeTwoWay(go.Size.stringify),
                         new go.Binding("maxSize", "fullItems", (items) => {
                             const count = items ? items.length : 0;
                             const minScrollerH = Math.max(BUTTONS_H + 15, 85);
-                            return new go.Size(Infinity, Math.max(count * ROW_HEIGHT, minScrollerH));
+                            const exactMax = count * ROW_HEIGHT + BUTTONS_H;
+                            return new go.Size(Infinity, Math.max(exactMax, minScrollerH));
                         }),
                         new go.Binding("TABLE.itemArray", "visibleItems"),
                         {
                             "TABLE.itemTemplate":
-                                $(go.Panel, "TableRow",
-                                    {
-                                        background: "transparent",
-                                        fromSpot: go.Spot.LeftRightSides,
-                                        toSpot: go.Spot.LeftRightSides,
-                                        height: ROW_HEIGHT // Force absolute height
-                                    },
+                        $(go.Panel, "TableRow",
+                            {
+                                background: "transparent",
+                                stretch: go.Stretch.Horizontal,
+                                minSize: new go.Size(NaN, ROW_HEIGHT),
+                                maxSize: new go.Size(NaN, ROW_HEIGHT)
+                            },
                                     new go.Binding("portId", "name"),
 
                                     $(go.Panel, "Horizontal",
-                                        { column: 0, margin: new go.Margin(6, 5, 6, 5) },
+                                        { column: 0, margin: new go.Margin(13, 5, 10, 5) },
                                         new go.Binding("visible", "", (data, obj) => {
                                             const node = obj.part;
                                             if (!node || !node.data) return true;
@@ -708,11 +743,11 @@
                     if (up) up.row = 1;
                     if (thumb) { thumb.row = 2; thumb.alignment = go.Spot.Top; }
                     if (down) down.row = 3;
-
                     // Add PageUp and PageDown buttons
                     if (!bar.findObject("PAGEUP")) {
                         const pageup = go.GraphObject.build("AutoRepeatButton", {
                             name: "PAGEUP", row: 0,
+                            height: BUTTON_SIZE,
                             "ButtonBorder.figure": "Rectangle",
                             "ButtonBorder.fill": "transparent",
                             "ButtonBorder.strokeWidth": 0,
@@ -732,8 +767,8 @@
                                 }
                             }
                         }).add($(go.Panel, "Vertical",
-                            $(go.Shape, "TriangleUp", { width: 8, height: 4, strokeWidth: 0, margin: new go.Margin(0, 0, 1, 0) }),
-                            $(go.Shape, "TriangleUp", { width: 8, height: 4, strokeWidth: 0 })
+                            $(go.Shape, "TriangleUp", { width: 8, height: 4, strokeWidth: 0 }),
+                            $(go.Shape, "TriangleUp", { width: 8, height: 4, strokeWidth: 0, margin: new go.Margin(-.5, 0, 0, 0) })
                         ));
                         bar.add(pageup);
                     }
@@ -741,6 +776,7 @@
                     if (!bar.findObject("PAGEDOWN")) {
                         const pagedown = go.GraphObject.build("AutoRepeatButton", {
                             name: "PAGEDOWN", row: 4,
+                            height: BUTTON_SIZE,
                             "ButtonBorder.figure": "Rectangle",
                             "ButtonBorder.fill": "transparent",
                             "ButtonBorder.strokeWidth": 0,
@@ -760,8 +796,8 @@
                                 }
                             }
                         }).add($(go.Panel, "Vertical",
-                            $(go.Shape, "TriangleDown", { width: 8, height: 4, strokeWidth: 0 }),
-                            $(go.Shape, "TriangleDown", { width: 8, height: 4, strokeWidth: 0, margin: new go.Margin(-1, 0, 0, 0) })
+                            $(go.Shape, "TriangleDown", { width: 8, height: 4, strokeWidth: 0, margin: new go.Margin(0, 0, -.5, 0)  }),
+                            $(go.Shape, "TriangleDown", { width: 8, height: 4, strokeWidth: 0 })
                         ));
                         bar.add(pagedown);
                     }
@@ -867,11 +903,17 @@
                     }
                     const up = scroller.findObject("UP");
                     if (up) {
-                        up.click = (ev) => { ev.handled = true; virtualScrollBy(node, -1); };
+                        up.click = (ev) => { ev.handled = true; virtualScrollBy(node, -1); }
+                        up.height = BUTTON_SIZE;
+                        up.minSize = new go.Size(NaN, BUTTON_SIZE);
+                        up.stretch = go.Stretch.Horizontal;
                     }
                     const down = scroller.findObject("DOWN");
                     if (down) {
-                        down.click = (ev) => { ev.handled = true; virtualScrollBy(node, 1); };
+                        down.click = (ev) => { ev.handled = true; virtualScrollBy(node, 1); }
+                        down.height = BUTTON_SIZE;
+                        down.minSize = new go.Size(NaN, BUTTON_SIZE);
+                        down.stretch = go.Stretch.Horizontal;
                     }
                     const pagedown = scroller.findObject("PAGEDOWN");
                     if (pagedown) {
@@ -885,6 +927,20 @@
                 } else {
                     // NON-VIRTUALIZED NODES: always show scrollbar, even if all items fit
                     scroller._updateScrollBar = () => updateNonVirtualScrollBar(node);
+                    const up = scroller.findObject("UP");
+                    const down = scroller.findObject("DOWN");
+
+                    if (up) {
+                        up.height = BUTTON_SIZE;
+                        up.minSize = new go.Size(NaN, BUTTON_SIZE);
+                        up.stretch = go.Stretch.Horizontal;
+                    }
+
+                    if (down) {
+                        down.height = BUTTON_SIZE;
+                        down.minSize = new go.Size(NaN, BUTTON_SIZE);
+                        down.stretch = go.Stretch.Horizontal;
+                    }
 
                     const table = scroller.findObject("TABLE");
                     const full = node.data.fullItems || [];
@@ -949,7 +1005,87 @@
                 });
             }
 
-            diagram.model.updateTargetBindings();
+        diagram.model.updateTargetBindings();
+
+            diagram.nodes.each(node => {
+                const scroller = node.findObject("SCROLLER");
+                const table = node.findObject("TABLE");
+                if (!scroller || !table) return;
+
+                const rowh = (table.elements.count > 0 && table.elt(0).actualBounds.height > 5)
+                    ? table.elt(0).actualBounds.height
+                    : ROW_HEIGHT;
+
+                const total = node.data.fullItems ? node.data.fullItems.length : 0;
+                const minRows = Math.min(8, total);
+
+                const minHeight = (minRows -1)* rowh + BUTTONS_H;
+                scroller.minSize = new go.Size(NaN, minHeight);
+            });
+
+            // DEFERRED: Re-measure after GoJS fully renders buttons and rows
+            setTimeout(() => {
+                // 1. Re-detect accurate ROW_HEIGHT and BUTTONS_H now that everything is painted
+                const firstNode = diagram.nodes.first();
+                if (firstNode) {
+                    const t = firstNode.findObject("TABLE");
+                    const s = firstNode.findObject("SCROLLER");
+                    if (t && t.elements.count > 0 && t.elt(0).actualBounds.height > 5) {
+                        ROW_HEIGHT = t.elt(0).actualBounds.height;
+                    }
+                    if (s) {
+                        const pup = s.findObject("PAGEUP");
+                        const up = s.findObject("UP");
+                        const dn = s.findObject("DOWN");
+                        const pdn = s.findObject("PAGEDOWN");
+                        const bh = (pup ? pup.actualBounds.height : 0)
+                            + (up ? up.actualBounds.height : 0)
+                            + (dn ? dn.actualBounds.height : 0)
+                            + (pdn ? pdn.actualBounds.height : 0);
+                        if (bh > 0) BUTTONS_H = bh;
+                    }
+                }
+
+                // 2. Re-apply correct desiredSize and maxSize for non-virtualized nodes
+                diagram.nodes.each(node => {
+                    if (node.data.isVirtualized) return;
+                    const scroller = node.findObject("SCROLLER");
+                    const table = node.findObject("TABLE");
+                    if (!scroller) return;
+
+                    const count = (node.data.fullItems || []).length;
+                    const rowh = (table && table.elements.count > 0 && table.elt(0).actualBounds.height > 5)
+                        ? table.elt(0).actualBounds.height : ROW_HEIGHT;
+
+                    const fitH = count * rowh;
+                    const minScrollerH = Math.max(BUTTONS_H + 15, 85);
+
+                    // maxSize = exactly the content, no extra
+                    const exactMax = fitH;
+
+                    // desiredSize = exactly fit all rows (capped at exactMax)
+                    const exactH = count <= 8
+                        ? Math.max(fitH, minScrollerH)
+                        : Math.max(Math.round(300 / rowh) * rowh, minScrollerH);
+
+                    scroller.maxSize = new go.Size(Infinity, Math.max(exactMax, minScrollerH));
+                    scroller.desiredSize = new go.Size(250, Math.min(exactH, exactMax));
+                    scroller.minSize = new go.Size(NaN, Math.min(fitH, Math.min(8, count) * rowh));
+                    node.ensureBounds();
+
+                    if (scroller._updateScrollBar) scroller._updateScrollBar();
+                });
+
+                diagram.requestUpdate();
+
+                diagram.nodes.each(node => {
+                    const scroller = node.findObject("SCROLLER");
+                    if (scroller && scroller._updateScrollBar) {
+                        scroller._updateScrollBar();
+                    }
+                });
+
+            }, 0);
         });
 
         /* ---------------- RESIZE HANDLER ---------------- */
@@ -967,13 +1103,21 @@
                     ? table.elt(0).actualBounds.height
                     : ROW_HEIGHT;
 
+                const total = node.data.fullItems ? node.data.fullItems.length : 0;
+                const minRows = Math.min(8, total);
+
+                obj.minSize = new go.Size(NaN, (minRows -1)* rowh + BUTTONS_H);
+
                 // 1. FORCE STRICT SNAPPING on the final result + CAP to content
                 const currentH = obj.actualBounds.height;
                 const fullLength = (node.data.fullItems ? node.data.fullItems.length : 0);
                 const minScrollerH = Math.max(BUTTONS_H + 15, 85);
                 const targetMaxH = Math.max(fullLength * rowh, minScrollerH);
 
-                const snappedH = Math.min(snapToRow(currentH, rowh), targetMaxH);
+                const snappedH = Math.max(
+                    minScrollerH,
+                    Math.min(snapToRow(currentH, rowh), targetMaxH)
+                );
                 if (Math.abs(obj.height - snappedH) > 0.1) {
                     obj.height = snappedH;
                     node.ensureBounds();
@@ -1027,7 +1171,7 @@
             { from: "Products", fromPort: "products_col_5", to: "Inventory", toPort: "inv_col_10", text: "DimensionDimension" },
             { from: "Suppliers", fromPort: "suppliers_col_10", to: "Inventory", toPort: "inv_col_20", text: "DimensionDimension" },
             { from: "Store", fromPort: "store_col_15", to: "Inventory", toPort: "inv_col_30", text: "DimensionDimension" },
-            { from: "Warehouse", fromPort: "warehouse_col_2", to: "Inventory", toPort: "inv_col_40", text: "DimensionDimension" }
+            { from: "NewNode", fromPort: "newnode_col_2", to: "Inventory", toPort: "inv_col_40", text: "DimensionDimension" }
         ];
 
         /* Helper to find all attributes that have links for a given node */
@@ -1077,9 +1221,9 @@
                 startIndex: 0
             },
             {
-                key: "Warehouse",
+                key: "NewNode",
                 loc: "0 1050",
-                fullItems: generateAttributes("warehouse", 3),
+                fullItems: generateAttributes("newnode", 4), // change count as needed
                 visibleItems: [],
                 startIndex: 0
             },
@@ -1111,7 +1255,7 @@
                 "Products": [0, 10, 20],
                 "Suppliers": [2, 12, 22],
                 "Store": [4, 14, 24],
-                "Inventory": [8, 18, 28]
+                "NewNode": [1]
             };
             (variety[n.key] || []).forEach(idx => {
                 if (full[idx]) nodeState.activeFilters.add(full[idx].name);
