@@ -94,15 +94,7 @@
 
                 // Get the total buttons height dynamically
                 const bar = scroller.findObject("SCROLLBAR");
-                let curButtonsH = 0;
-                if (bar) {
-                    bar.elements.each(el => {
-                        if (el.name !== "THUMB" && el.actualBounds.height > 0) {
-                            curButtonsH += el.actualBounds.height;
-                        }
-                    });
-                }
-                this._stableButtonsH = (curButtonsH > 0) ? curButtonsH : BUTTONS_H;
+                this._stableButtonsH = 40;
             }
         };
 
@@ -120,9 +112,8 @@
 
                 // 🔥 HARD MIN HEIGHT (this stops visual shrinking)
                 // const minHeight = snapToRow((MIN_ROWS * rowH), rowH) + BUTTONS_H;
-                const total = this.adornedObject.part?.data?.fullItems?.length || 0;
                 const minRows = Math.min(8, total);
-                const minHeight = (minRows - 1) * rowH + BUTTONS_H;
+                const minHeight = (minRows - 1) * rowH + 40; // Lock to initial starting pad
                 // Snap to rows
                 let snapped = snapToRow(result.height, rowH);
 
@@ -241,11 +232,11 @@
                             const minRows = Math.min(8, count);
 
                             // ✅ Use ROW_HEIGHT (rowh not available here)
-                            const minScrollerH = (minRows -1 )* ROW_HEIGHT + BUTTONS_H;
+                            const minScrollerH = (minRows -1 )* ROW_HEIGHT + 40;
 
                             if (!isVirt) {
                                 const fitH = count * ROW_HEIGHT;
-                                const exactH = Math.max(fitH, (Math.min(8, count) - 1) * ROW_HEIGHT + BUTTONS_H);
+                                const exactH = Math.max(fitH, (Math.min(8, count) - 1) * ROW_HEIGHT + 40);
                                 return new go.Size(250, exactH);
                             }
 
@@ -259,8 +250,8 @@
                         }).makeTwoWay(go.Size.stringify),
                         new go.Binding("maxSize", "fullItems", (items) => {
                             const count = items ? items.length : 0;
-                            const minScrollerH = Math.max(BUTTONS_H + 15, 85);
-                            const exactMax = count * ROW_HEIGHT + BUTTONS_H;
+                            const minScrollerH = 85;
+                            const exactMax = count * ROW_HEIGHT + 40;
                             return new go.Size(Infinity, Math.max(exactMax, minScrollerH));
                         }),
                         new go.Binding("TABLE.itemArray", "visibleItems"),
@@ -824,7 +815,7 @@
 
                     // 2. LIMIT HEIGHT for virtualized nodes too
                     const full = node.data.fullItems || [];
-                    const maxPossibleH = (full.length * ROW_HEIGHT) + BUTTONS_H + 4;
+                    const maxPossibleH = (full.length * ROW_HEIGHT) + 44;
                     scroller.maxSize = new go.Size(NaN, maxPossibleH);
                     if (scroller.height > maxPossibleH) scroller.height = maxPossibleH;
 
@@ -946,7 +937,7 @@
                     const full = node.data.fullItems || [];
                     if (table) {
                         const contentH = full.length * ROW_HEIGHT;
-                        const minScrollerH = Math.max(BUTTONS_H + 15, 85);
+                        const minScrollerH = 85;
                         const targetMaxH = Math.max(contentH, minScrollerH);
 
                         scroller.maxSize = new go.Size(NaN, targetMaxH);
@@ -997,7 +988,7 @@
                     if (s && t) {
                         const items = node.data.fullItems || [];
                         const rowh = (t.elements.count > 0 && t.elt(0).actualBounds.height > 5) ? t.elt(0).actualBounds.height : ROW_HEIGHT;
-                        const minScrollerH = Math.max(BUTTONS_H + 15, 85);
+                        const minScrollerH = 85;
                         const maxH = Math.max(items.length * rowh, minScrollerH);
                         s.maxSize = new go.Size(NaN, maxH);
                         if (s.height > maxH) s.height = maxH;
@@ -1019,7 +1010,7 @@
                 const total = node.data.fullItems ? node.data.fullItems.length : 0;
                 const minRows = Math.min(8, total);
 
-                const minHeight = (minRows -1)* rowh + BUTTONS_H;
+                const minHeight = (minRows -1)* rowh + 40;
                 scroller.minSize = new go.Size(NaN, minHeight);
             });
 
@@ -1058,7 +1049,7 @@
                         ? table.elt(0).actualBounds.height : ROW_HEIGHT;
 
                     const fitH = count * rowh;
-                    const minScrollerH = Math.max(BUTTONS_H + 15, 85);
+                    const minScrollerH = 85;
 
                     // maxSize = exactly the content, no extra
                     const exactMax = fitH;
@@ -1106,12 +1097,12 @@
                 const total = node.data.fullItems ? node.data.fullItems.length : 0;
                 const minRows = Math.min(8, total);
 
-                obj.minSize = new go.Size(NaN, (minRows -1)* rowh + BUTTONS_H);
+                obj.minSize = new go.Size(NaN, (minRows -1)* rowh + 40);
 
                 // 1. FORCE STRICT SNAPPING on the final result + CAP to content
                 const currentH = obj.actualBounds.height;
                 const fullLength = (node.data.fullItems ? node.data.fullItems.length : 0);
-                const minScrollerH = Math.max(BUTTONS_H + 15, 85);
+                const minScrollerH = 85;
                 const targetMaxH = Math.max(fullLength * rowh, minScrollerH);
 
                 const snappedH = Math.max(
