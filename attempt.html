@@ -175,200 +175,322 @@
         /* ---------------- NODE TEMPLATE ---------------- */
 
         diagram.nodeTemplate =
-            $(go.Node, "Auto",
+            $(go.Node, "Spot",
                 {
                     selectable: true,
                     resizable: true,
                     resizeObjectName: "SCROLLER",
-                    locationSpot: go.Spot.TopLeft
+                    locationObjectName: "BODY",
+                    selectionObjectName: "BODY",
+                    locationSpot: go.Spot.TopLeft,
+                    mouseLeave: (e, node) => {
+                        const ra = node.findObject("ROAMING_RIGHT");
+                        const la = node.findObject("ROAMING_LEFT");
+                        if (ra) ra.visible = false;
+                        if (la) la.visible = false;
+                    },
+                    selectionChanged: (node) => {
+                        node.layerName = node.isSelected ? "Foreground" : "";
+                        node.findLinksConnected().each(link => {
+                            const sel = link.isSelected || 
+                                        (link.fromNode && link.fromNode.isSelected) || 
+                                        (link.toNode && link.toNode.isSelected);
+                            link.layerName = sel ? "Foreground" : "";
+                        });
+                    }
                 },
                 new go.Binding("location", "loc", go.Point.parse).makeTwoWay(go.Point.stringify),
 
-                $(go.Shape, "Rectangle", {
-                    fill: "white", stroke: "#ccc", strokeWidth: 1,
-                    spot1: go.Spot.TopLeft, spot2: go.Spot.BottomRight
-                }),
+                $(go.Panel, "Auto",
+                    { name: "BODY" },
+                    $(go.Shape, "Rectangle", {
+                        fill: "white", stroke: "#ccc", strokeWidth: 1,
+                        spot1: go.Spot.TopLeft, spot2: go.Spot.BottomRight
+                    }),
 
-                $(go.Panel, "Vertical",
-                    { defaultStretch: go.Stretch.Horizontal },
-                    // HEADER
-                    $(go.Panel, "Horizontal",
-                        {
-                            stretch: go.Stretch.Horizontal,
-                            background: "#f0f0f0",
-                            padding: new go.Margin(6, 4, 6, 5)
-                        },
-                        $(go.Shape, {
-                            geometryString: "F1 " + ICN_NODE,
-                            width: 14, height: 14,
-                            fill: "#444", stroke: null,
-                            stretch: go.Stretch.Uniform,
-                            margin: new go.Margin(0, 8, 0, 0)
-                        }),
-                        $(go.TextBlock, { font: "bold 13px sans-serif", stroke: "#222" },
-                            new go.Binding("text", "key"))
-                    ),
-
-                    // SCROLLING TABLE
-                    $("ScrollingTable",
-                        {
-                            name: "SCROLLER",
-                            desiredSize: new go.Size(250, 300),
-                            minSize: new go.Size(NaN, 200), // temporary, will override dynamically
-                            "TABLE.defaultAlignment": go.Spot.TopLeft
-                        },
-                        new go.Binding("desiredSize", "size", (s, obj) => {
-                            if (s) return go.Size.parse(s);
-
-                            const node = obj.part;
-                            const data = node ? node.data : null;
-                            if (!data) return new go.Size(250, 300);
-
-                            const items = data.fullItems || [];
-                            const count = items.length;
-                            const isVirt = data.isVirtualized;
-
-                            // ✅ Dynamic min rows (max 8, else exact count)
-                            const minRows = Math.min(8, count);
-
-                            // ✅ Use ROW_HEIGHT (rowh not available here)
-                            const minScrollerH = (minRows -1 )* ROW_HEIGHT + 40;
-
-                            if (!isVirt) {
-                                const fitH = count * ROW_HEIGHT;
-                                const exactH = Math.max(fitH, (Math.min(8, count) - 1) * ROW_HEIGHT + 40);
-                                return new go.Size(250, exactH);
-                            }
-
-                            // ✅ Virtualized → keep default but respect min
-                            const snappedDefaultH = Math.round(300 / ROW_HEIGHT) * ROW_HEIGHT;
-
-                            return new go.Size(
-                                250,
-                                Math.max(snappedDefaultH, minScrollerH)
-                            );
-                        }).makeTwoWay(go.Size.stringify),
-                        new go.Binding("maxSize", "fullItems", (items) => {
-                            const count = items ? items.length : 0;
-                            const minScrollerH = 85;
-                            const exactMax = count * ROW_HEIGHT + 40;
-                            return new go.Size(Infinity, Math.max(exactMax, minScrollerH));
-                        }),
-                        new go.Binding("TABLE.itemArray", "visibleItems"),
-                        {
-                            "TABLE.itemTemplate":
-                        $(go.Panel, "TableRow",
+                    $(go.Panel, "Vertical",
+                        { defaultStretch: go.Stretch.Horizontal },
+                        // HEADER
+                        $(go.Panel, "Horizontal",
                             {
-                                background: "transparent",
                                 stretch: go.Stretch.Horizontal,
-                                minSize: new go.Size(NaN, ROW_HEIGHT),
-                                maxSize: new go.Size(NaN, ROW_HEIGHT)
+                                background: "#f0f0f0",
+                                padding: new go.Margin(6, 4, 6, 5)
                             },
-                                    new go.Binding("portId", "name"),
+                            $(go.Shape, {
+                                geometryString: "F1 " + ICN_NODE,
+                                width: 14, height: 14,
+                                fill: "#444", stroke: null,
+                                stretch: go.Stretch.Uniform,
+                                margin: new go.Margin(0, 8, 0, 0)
+                            }),
+                            $(go.TextBlock, { font: "bold 13px sans-serif", stroke: "#222" },
+                                new go.Binding("text", "key"))
+                        ),
 
-                                    $(go.Panel, "Horizontal",
-                                        { column: 0, margin: new go.Margin(13, 5, 10, 5) },
-                                        new go.Binding("visible", "", (data, obj) => {
-                                            const node = obj.part;
-                                            if (!node || !node.data) return true;
-                                            const nData = node.data;
-                                            if (!nData.isVirtualized) return true;
+                        // SCROLLING TABLE
+                        $("ScrollingTable",
+                            {
+                                name: "SCROLLER",
+                                desiredSize: new go.Size(250, 300),
+                                minSize: new go.Size(NaN, 200), // temporary, will override dynamically
+                                "TABLE.defaultAlignment": go.Spot.TopLeft
+                            },
+                            new go.Binding("desiredSize", "size", (s, obj) => {
+                                if (s) return go.Size.parse(s);
 
-                                            const fullIndex = nData.indexMap.get(data);
-                                            const windowStart = nData.startIndex || 0;
-                                            // USE STORED CAPACITY for perfect sync during scroll/resize
-                                            const capacity = nData.capacity || 10;
-                                            const windowEnd = windowStart + capacity;
+                                const node = obj.part;
+                                const data = node ? node.data : null;
+                                if (!data) return new go.Size(250, 300);
 
-                                            // Only show the row contents if it's within the viewport's capacity range
-                                            return (fullIndex >= windowStart && fullIndex < windowEnd);
-                                        }),
+                                const items = data.fullItems || [];
+                                const count = items.length;
+                                const isVirt = data.isVirtualized;
 
-                                        // Filter Icon
-                                        $(go.Shape, {
-                                            geometryString: "F1 " + ICN_FILTER,
-                                            width: 14, height: 14,
-                                            stroke: null,
-                                            stretch: go.Stretch.Uniform,
-                                            margin: new go.Margin(0, 10, 0, 0),
-                                            cursor: "pointer",
-                                            click: (e, obj) => {
-                                                e.handled = true;
+                                // ✅ Dynamic min rows (max 8, else exact count)
+                                const minRows = Math.min(8, count);
+
+                                // ✅ Use ROW_HEIGHT (rowh not available here)
+                                const minScrollerH = (minRows - 1) * ROW_HEIGHT + 40;
+
+                                if (!isVirt) {
+                                    const fitH = count * ROW_HEIGHT;
+                                    const exactH = Math.max(fitH, (Math.min(8, count) - 1) * ROW_HEIGHT + 40);
+                                    return new go.Size(250, exactH);
+                                }
+
+                                // ✅ Virtualized → keep default but respect min
+                                const snappedDefaultH = Math.round(300 / ROW_HEIGHT) * ROW_HEIGHT;
+
+                                return new go.Size(
+                                    250,
+                                    Math.max(snappedDefaultH, minScrollerH)
+                                );
+                            }).makeTwoWay(go.Size.stringify),
+                            new go.Binding("maxSize", "fullItems", (items) => {
+                                const count = items ? items.length : 0;
+                                const minScrollerH = 85;
+                                const exactMax = count * ROW_HEIGHT + 40;
+                                return new go.Size(Infinity, Math.max(exactMax, minScrollerH));
+                            }),
+                            new go.Binding("TABLE.itemArray", "visibleItems"),
+                            {
+                                "TABLE.itemTemplate":
+                                    $(go.Panel, "TableRow",
+                                        {
+                                            background: "transparent",
+                                            stretch: go.Stretch.Horizontal,
+                                            minSize: new go.Size(NaN, ROW_HEIGHT),
+                                            maxSize: new go.Size(NaN, ROW_HEIGHT),
+                                            toLinkable: true,
+                                            fromLinkable: true, // Allow drawing directly from the row body
+                                            toolTip:
+                                                $("ToolTip",
+                                                    $(go.TextBlock, { margin: 4, font: "bold 12px sans-serif" },
+                                                        new go.Binding("text", "name"))
+                                                ),
+                                            mouseEnter: (e, row) => {
+                                                const node = row.part;
+                                                const ra = node.findObject("ROAMING_RIGHT");
+                                                const la = node.findObject("ROAMING_LEFT");
+                                                if (ra && la) {
+                                                    const nodeDocPt = node.getDocumentPoint(go.Spot.TopLeft);
+                                                    const rowDocPt = row.getDocumentPoint(go.Spot.Center);
+                                                    const nodeH = node.actualBounds.height;
+
+                                                    let yRatio = 0.5;
+                                                    if (nodeH > 0) yRatio = (rowDocPt.y - nodeDocPt.y) / nodeH;
+
+                                                    ra.alignment = new go.Spot(1, yRatio, -2, 0); // Re-aligned closer to avoid dead zones
+                                                    la.alignment = new go.Spot(0, yRatio, 2, 0);
+
+                                                    const raShape = ra.findObject("RIGHT_ARROW_SHAPE");
+                                                    const laShape = la.findObject("LEFT_ARROW_SHAPE");
+                                                    if (raShape) raShape.stroke = "black";
+                                                    if (laShape) laShape.stroke = "black";
+
+                                                    ra.visible = true;
+                                                    la.visible = true;
+                                                    node._hoveredRowName = row.data.name;
+                                                }
+                                            },
+                                            mouseLeave: (e, row) => {
+                                                if (e.diagram.currentTool instanceof go.LinkingTool) return;
+                                                const pt = e.diagram.lastInput.documentPoint;
+                                                const node = row.part;
+                                                const ra = node.findObject("ROAMING_RIGHT");
+                                                const la = node.findObject("ROAMING_LEFT");
+                                                const scroller = node.findObject("SCROLLER");
+
+                                                if (ra && ra.getDocumentBounds().containsPoint(pt)) return;
+                                                if (la && la.getDocumentBounds().containsPoint(pt)) return;
+                                                if (scroller && scroller.getDocumentBounds().containsPoint(pt)) return;
+
+                                                if (ra) ra.visible = false;
+                                                if (la) la.visible = false;
+                                            }
+                                        },
+                                        new go.Binding("portId", "name"),
+                                        new go.Binding("fromSpot", "", () => go.Spot.Right),
+                                        new go.Binding("toSpot", "", () => go.Spot.Left),
+
+                                        $(go.Panel, "Horizontal",
+                                            { column: 0, margin: new go.Margin(13, 5, 10, 5) },
+                                            new go.Binding("visible", "", (data, obj) => {
                                                 const node = obj.part;
-                                                let attrData = obj.data;
-                                                let p = obj;
-                                                while (!attrData && p.panel) { p = p.panel; attrData = p.data; }
+                                                if (!node || !node.data) return true;
+                                                const nData = node.data;
+                                                if (!nData.isVirtualized) return true;
 
-                                                if (node && attrData) {
-                                                    const state = globalNodeState.get(node.key);
-                                                    if (state) {
-                                                        const model = diagram.model;
-                                                        model.startTransaction("toggle filter");
-                                                        const attrName = attrData.name;
-                                                        const filterActive = !state.activeFilters.has(attrName);
+                                                const fullIndex = nData.indexMap.get(data);
+                                                const windowStart = nData.startIndex || 0;
+                                                const capacity = nData.capacity || 10;
+                                                const windowEnd = windowStart + capacity;
 
-                                                        if (filterActive) {
-                                                            state.activeFilters.add(attrName);
-                                                        } else {
-                                                            state.activeFilters.delete(attrName);
+                                                return (fullIndex >= windowStart && fullIndex < windowEnd);
+                                            }),
+
+                                            // Filter Icon
+                                            $(go.Shape, {
+                                                geometryString: "F1 " + ICN_FILTER,
+                                                width: 14, height: 14,
+                                                stroke: null,
+                                                stretch: go.Stretch.Uniform,
+                                                margin: new go.Margin(0, 10, 0, 0),
+                                                cursor: "pointer",
+                                                click: (e, obj) => {
+                                                    e.handled = true;
+                                                    const node = obj.part;
+                                                    let attrData = obj.data;
+                                                    let p = obj;
+                                                    while (!attrData && p.panel) { p = p.panel; attrData = p.data; }
+
+                                                    if (node && attrData) {
+                                                        const state = globalNodeState.get(node.key);
+                                                        if (state) {
+                                                            const model = diagram.model;
+                                                            model.startTransaction("toggle filter");
+                                                            const attrName = attrData.name;
+                                                            const filterActive = !state.activeFilters.has(attrName);
+
+                                                            if (filterActive) {
+                                                                state.activeFilters.add(attrName);
+                                                            } else {
+                                                                state.activeFilters.delete(attrName);
+                                                            }
+
+                                                            const table = node.findObject("TABLE");
+                                                            const currentTop = node.data.startIndex + (table ? table.topIndex : 0);
+                                                            updateWindow(node, currentTop + BUFFER);
+
+                                                            model.updateTargetBindings(node.data);
+
+                                                            if (table) {
+                                                                table.topIndex = Math.max(0, currentTop - node.data.startIndex);
+                                                            }
+
+                                                            model.updateTargetBindings(attrData);
+                                                            model.commitTransaction("toggle filter");
                                                         }
-
-                                                        // Refresh only the window because the "Always Rendered" set changed
-                                                        const table = node.findObject("TABLE");
-                                                        const currentTop = node.data.startIndex + (table ? table.topIndex : 0);
-                                                        updateWindow(node, currentTop + BUFFER);
-
-                                                        // Refresh bindings for the node data (to update visibleItems)
-                                                        model.updateTargetBindings(node.data);
-
-                                                        // CRITICAL: Force update and synchronize topIndex to prevent jump
-                                                        if (table) {
-                                                            table.topIndex = Math.max(0, currentTop - node.data.startIndex);
-                                                        }
-
-                                                        // Refresh the specific row's bindings to show the new filter state
-                                                        model.updateTargetBindings(attrData);
-
-                                                        model.commitTransaction("toggle filter");
                                                     }
                                                 }
-                                            }
-                                        }, new go.Binding("fill", "", (data, obj) => {
-                                            let d = data;
-                                            let p = obj;
-                                            while (!d && p.panel) { p = p.panel; d = p.data; }
+                                            }, new go.Binding("fill", "", (data, obj) => {
+                                                let d = data;
+                                                let p = obj;
+                                                while (!d && p.panel) { p = p.panel; d = p.data; }
 
-                                            const node = obj.part;
-                                            const state = node ? globalNodeState.get(node.key) : null;
-                                            const active = (state && d && state.activeFilters.has(d.name));
-                                            return active ? "black" : "#AAA";
-                                        })),
+                                                const node = obj.part;
+                                                const state = node ? globalNodeState.get(node.key) : null;
+                                                const active = (state && d && state.activeFilters.has(d.name));
+                                                return active ? "black" : "#AAA";
+                                            })),
 
-                                        // Hierarchy Icon
-                                        $(go.Shape, {
-                                            geometryString: "F1 " + ICN_MEASURE,
-                                            width: 14, height: 14,
-                                            fill: "#666", stroke: null,
-                                            stretch: go.Stretch.Uniform,
-                                            margin: new go.Margin(0, 10, 0, 0)
-                                        }),
+                                            // Hierarchy Icon
+                                            $(go.Shape, {
+                                                geometryString: "F1 " + ICN_MEASURE,
+                                                width: 14, height: 14,
+                                                fill: "#666", stroke: null,
+                                                stretch: go.Stretch.Uniform,
+                                                margin: new go.Margin(0, 10, 0, 0)
+                                            }),
 
-                                        // Type Icon
-                                        $(go.Shape, {
-                                            width: 14, height: 14,
-                                            fill: "#666", stroke: null,
-                                            stretch: go.Stretch.Uniform,
-                                            margin: new go.Margin(0, 10, 0, 0)
-                                        }, new go.Binding("geometryString", "type", t => "F1 " + (t === "number" ? ICN_NUM : ICN_STR))),
+                                            // Type Icon
+                                            $(go.Shape, {
+                                                width: 14, height: 14,
+                                                fill: "#666", stroke: null,
+                                                stretch: go.Stretch.Uniform,
+                                                margin: new go.Margin(0, 10, 0, 0)
+                                            }, new go.Binding("geometryString", "type", t => "F1 " + (t === "number" ? ICN_NUM : ICN_STR))),
 
-                                        // Attribute Name
-                                        $(go.TextBlock,
-                                            { font: "14px sans-serif", stroke: "#333", margin: new go.Margin(0, 0, 0, 2) },
-                                            new go.Binding("text", "name"))
+                                            // Attribute Name
+                                            $(go.TextBlock,
+                                                { font: "14px sans-serif", stroke: "#333", margin: new go.Margin(0, 0, 0, 2) },
+                                                new go.Binding("text", "name"))
+                                        )
                                     )
-                                )
+                            }
+                        ) // close ScrollingTable
+                    ) // close Vertical panel
+                ), // close Auto panel
+
+                // Roaming Left Port (Incoming)
+                $(go.Panel, "Auto", {
+                    name: "ROAMING_LEFT",
+                    alignmentFocus: go.Spot.Right,
+                    visible: false, cursor: "pointer",
+                    toLinkable: true, fromLinkable: true, portId: "TEMP_LEFT",
+                    background: "transparent",
+                    mouseEnter: (e, panel) => {
+                        const shape = panel.findObject("LEFT_ARROW_SHAPE");
+                        if (shape) shape.stroke = "#00a1ff";
+                    },
+                    mouseLeave: (e, panel) => {
+                        const shape = panel.findObject("LEFT_ARROW_SHAPE");
+                        if (shape) shape.stroke = "black";
+                        if (!(e.diagram.currentTool instanceof go.LinkingTool)) {
+                            panel.visible = false;
+                            const ra = panel.part.findObject("ROAMING_RIGHT");
+                            if (ra) ra.visible = false;
                         }
-                    )
+                    }
+                },
+                    $(go.Shape, {
+                        name: "LEFT_ARROW_SHAPE",
+                        geometryString: "M 14 5 L 0 5 M 5 0 L 0 5 L 5 10", // Left arrow with tail
+                        stroke: "black", strokeWidth: 2, fill: null,
+                        width: 14, height: 10,
+                        margin: new go.Margin(5, 10, 5, 0)
+                    })
+                ),
+
+                // Roaming Right Port (Outgoing)
+                $(go.Panel, "Auto", {
+                    name: "ROAMING_RIGHT",
+                    alignmentFocus: go.Spot.Left,
+                    visible: false, cursor: "pointer",
+                    fromLinkable: true, portId: "TEMP_RIGHT",
+                    background: "transparent",
+                    mouseEnter: (e, panel) => {
+                        const shape = panel.findObject("RIGHT_ARROW_SHAPE");
+                        if (shape) shape.stroke = "#00a1ff";
+                    },
+                    mouseLeave: (e, panel) => {
+                        const shape = panel.findObject("RIGHT_ARROW_SHAPE");
+                        if (shape) shape.stroke = "black";
+                        if (!(e.diagram.currentTool instanceof go.LinkingTool)) {
+                            panel.visible = false;
+                            const la = panel.part.findObject("ROAMING_LEFT");
+                            if (la) la.visible = false;
+                        }
+                    }
+                },
+                    $(go.Shape, {
+                        name: "RIGHT_ARROW_SHAPE",
+                        geometryString: "M 0 5 L 14 5 M 9 0 L 14 5 L 9 10", // Right arrow with tail
+                        stroke: "black", strokeWidth: 2, fill: null,
+                        width: 14, height: 10,
+                        margin: new go.Margin(5, 0, 5, 10)
+                    })
                 )
             );
 
@@ -388,67 +510,99 @@
 
         /* ---------------- LINK TEMPLATE ---------------- */
 
+        class VirtualizedLink extends go.Link {
+            computePoints() {
+                const fn = this.fromNode;
+                const tn = this.toNode;
+                
+                if (fn && tn) {
+                    // Auto-determine left/right based on physical node locations
+                    // Uses bounds center to detect which side is shortest
+                    const fromX = fn.location.x + (fn.actualBounds.width / 2);
+                    const toX = tn.location.x + (tn.actualBounds.width / 2);
+                    const isLeft = (fromX > toX);
+
+                    // 1. Calculate fromSpot
+                    let fSpot = isLeft ? go.Spot.Left : go.Spot.Right;
+                    let fEndLen = isLeft ? 0 : 10;
+
+                    if (fn.data && fn.data.isVirtualized) {
+                        const portId = this.fromPortId || (this.data ? this.data.fromPort : null);
+                        const port = fn.findPort(portId);
+                        if (!port || port === fn) {
+                            fEndLen = 0;
+                            const full = fn.data.fullItems;
+                            const idx = full ? full.findIndex(i => i.name === portId) : -1;
+                            const globalTop = fn.data.startIndex + (fn.findObject("TABLE")?.topIndex || 0);
+                            const scroller = fn.findObject("SCROLLER");
+                            const nodeH = fn.actualBounds.height;
+                            
+                            if (scroller && nodeH > 0) {
+                                const scrollerDocPt = scroller.getDocumentPoint(go.Spot.TopLeft);
+                                const nodeDocPt = fn.getDocumentPoint(go.Spot.TopLeft);
+                                const scrollerTopY = (scrollerDocPt.y - nodeDocPt.y) / nodeH;
+                                const scrollerBottomY = (scrollerDocPt.y + scroller.actualBounds.height - nodeDocPt.y) / nodeH;
+                                fSpot = (idx < globalTop) 
+                                    ? new go.Spot(isLeft ? 0 : 1, scrollerTopY)
+                                    : new go.Spot(isLeft ? 0 : 1, scrollerBottomY);
+                            } else {
+                                fSpot = (idx < globalTop)
+                                    ? (isLeft ? go.Spot.TopLeft : go.Spot.TopRight)
+                                    : (isLeft ? go.Spot.BottomLeft : go.Spot.BottomRight);
+                            }
+                        }
+                    }
+
+                    if (!this.fromSpot.equals(fSpot)) this.fromSpot = fSpot;
+                    if (this.fromEndSegmentLength !== fEndLen) this.fromEndSegmentLength = fEndLen;
+
+                    // 2. Calculate toSpot
+                    const enterRight = isLeft; // if originating from left side, it hits the target's right side
+                    let tSpot = enterRight ? go.Spot.Right : go.Spot.Left;
+                    
+                    if (tn.data && tn.data.isVirtualized) {
+                        const portId = this.toPortId || (this.data ? this.data.toPort : null);
+                        const port = tn.findPort(portId);
+                        if (!port || port === tn) {
+                            const full = tn.data.fullItems;
+                            const idx = full ? full.findIndex(i => i.name === portId) : -1;
+                            const globalTop = tn.data.startIndex + (tn.findObject("TABLE")?.topIndex || 0);
+                            const scroller = tn.findObject("SCROLLER");
+                            const nodeH = tn.actualBounds.height;
+                            
+                            if (scroller && nodeH > 0) {
+                                const scrollerDocPt = scroller.getDocumentPoint(go.Spot.TopLeft);
+                                const nodeDocPt = tn.getDocumentPoint(go.Spot.TopLeft);
+                                const scrollerTopY = (scrollerDocPt.y - nodeDocPt.y) / nodeH;
+                                const scrollerBottomY = (scrollerDocPt.y + scroller.actualBounds.height - nodeDocPt.y) / nodeH;
+                                tSpot = (idx < globalTop)
+                                    ? new go.Spot(enterRight ? 1 : 0, scrollerTopY)
+                                    : new go.Spot(enterRight ? 1 : 0, scrollerBottomY);
+                            } else {
+                                tSpot = (idx < globalTop)
+                                    ? (enterRight ? go.Spot.TopRight : go.Spot.TopLeft)
+                                    : (enterRight ? go.Spot.BottomRight : go.Spot.BottomLeft);
+                            }
+                        }
+                    }
+
+                    if (!this.toSpot.equals(tSpot)) this.toSpot = tSpot;
+                }
+                
+                return super.computePoints();
+            }
+        }
+
         diagram.linkTemplate =
-            $(go.Link,
+            $(VirtualizedLink,
                 {
-                    // fromSpot/toSpot will be overridden dynamically
+                    selectionChanged: (link) => {
+                        const sel = link.isSelected || 
+                                    (link.fromNode && link.fromNode.isSelected) || 
+                                    (link.toNode && link.toNode.isSelected);
+                        link.layerName = sel ? "Foreground" : "";
+                    }
                 },
-                // Dynamic fromSpot: if the source port is off-screen, route to table edge
-                new go.Binding("fromSpot", "", (linkData, link) => {
-                    const fromNode = link.fromNode;
-                    if (!fromNode || !fromNode.data.isVirtualized) return go.Spot.Right;
-                    const port = fromNode.findPort(linkData.fromPort);
-                    if (!port || port === fromNode) {
-                        const full = fromNode.data.fullItems;
-                        const idx = full ? full.findIndex(i => i.name === linkData.fromPort) : -1;
-                        const globalTop = fromNode.data.startIndex + (fromNode.findObject("TABLE")?.topIndex || 0);
-                        // Calculate the scroller position within the node
-                        const scroller = fromNode.findObject("SCROLLER");
-                        const nodeH = fromNode.actualBounds.height;
-                        if (scroller && nodeH > 0) {
-                            const scrollerDocPt = scroller.getDocumentPoint(go.Spot.TopLeft);
-                            const nodeDocPt = fromNode.getDocumentPoint(go.Spot.TopLeft);
-                            const scrollerTopY = (scrollerDocPt.y - nodeDocPt.y) / nodeH;
-                            const scrollerBottomY = (scrollerDocPt.y + scroller.actualBounds.height - nodeDocPt.y) / nodeH;
-                            if (idx < globalTop) return new go.Spot(1, scrollerTopY);
-                            return new go.Spot(1, scrollerBottomY);
-                        }
-                        if (idx < globalTop) return go.Spot.TopRight;
-                        return go.Spot.BottomRight;
-                    }
-                    return go.Spot.Right;
-                }),
-                // Dynamic toSpot: if the target port is off-screen, route to table edge
-                new go.Binding("toSpot", "", (linkData, link) => {
-                    const toNode = link.toNode;
-                    if (!toNode || !toNode.data.isVirtualized) return go.Spot.Left;
-                    const port = toNode.findPort(linkData.toPort);
-                    if (!port || port === toNode) {
-                        const full = toNode.data.fullItems;
-                        const idx = full ? full.findIndex(i => i.name === linkData.toPort) : -1;
-                        const globalTop = toNode.data.startIndex + (toNode.findObject("TABLE")?.topIndex || 0);
-                        const scroller = toNode.findObject("SCROLLER");
-                        const nodeH = toNode.actualBounds.height;
-                        if (scroller && nodeH > 0) {
-                            const scrollerDocPt = scroller.getDocumentPoint(go.Spot.TopLeft);
-                            const nodeDocPt = toNode.getDocumentPoint(go.Spot.TopLeft);
-                            const scrollerTopY = (scrollerDocPt.y - nodeDocPt.y) / nodeH;
-                            const scrollerBottomY = (scrollerDocPt.y + scroller.actualBounds.height - nodeDocPt.y) / nodeH;
-                            if (idx < globalTop) return new go.Spot(0, scrollerTopY);
-                            return new go.Spot(0, scrollerBottomY);
-                        }
-                        if (idx < globalTop) return go.Spot.TopLeft;
-                        return go.Spot.BottomLeft;
-                    }
-                    return go.Spot.Left;
-                }),
-                // Eliminate the gap/stub when ports are off-screen
-                new go.Binding("fromEndSegmentLength", "", (linkData, link) => {
-                    const fromNode = link.fromNode;
-                    if (!fromNode || !fromNode.data.isVirtualized) return 10;
-                    const port = fromNode.findPort(linkData.fromPort);
-                    return (!port || port === fromNode) ? 0 : 10;
-                }),
                 new go.Binding("toEndSegmentLength", "", () => 15),
 
                 $(go.Shape, { strokeWidth: 1, stroke: "#999" }),
@@ -602,6 +756,11 @@
             const data = node.data;
             const table = node.findObject("TABLE");
             if (!table) return;
+
+            const ra = node.findObject("ROAMING_RIGHT");
+            const la = node.findObject("ROAMING_LEFT");
+            if (ra) ra.visible = false;
+            if (la) la.visible = false;
 
             // Current global top index
             const currentGlobalIndex = data.startIndex + table.topIndex;
@@ -787,7 +946,7 @@
                                 }
                             }
                         }).add($(go.Panel, "Vertical",
-                            $(go.Shape, "TriangleDown", { width: 8, height: 4, strokeWidth: 0, margin: new go.Margin(0, 0, -.5, 0)  }),
+                            $(go.Shape, "TriangleDown", { width: 8, height: 4, strokeWidth: 0, margin: new go.Margin(0, 0, -.5, 0) }),
                             $(go.Shape, "TriangleDown", { width: 8, height: 4, strokeWidth: 0 })
                         ));
                         bar.add(pagedown);
@@ -996,7 +1155,7 @@
                 });
             }
 
-        diagram.model.updateTargetBindings();
+            diagram.model.updateTargetBindings();
 
             diagram.nodes.each(node => {
                 const scroller = node.findObject("SCROLLER");
@@ -1010,7 +1169,7 @@
                 const total = node.data.fullItems ? node.data.fullItems.length : 0;
                 const minRows = Math.min(8, total);
 
-                const minHeight = (minRows -1)* rowh + 40;
+                const minHeight = (minRows - 1) * rowh + 40;
                 scroller.minSize = new go.Size(NaN, minHeight);
             });
 
@@ -1097,7 +1256,7 @@
                 const total = node.data.fullItems ? node.data.fullItems.length : 0;
                 const minRows = Math.min(8, total);
 
-                obj.minSize = new go.Size(NaN, (minRows -1)* rowh + 40);
+                obj.minSize = new go.Size(NaN, (minRows - 1) * rowh + 40);
 
                 // 1. FORCE STRICT SNAPPING on the final result + CAP to content
                 const currentH = obj.actualBounds.height;
@@ -1294,7 +1453,129 @@
             linkDataArray: linkDataArray
         });
 
+        // Ensure newly drawn links match the hardcoded styling and attributes
+        diagram.toolManager.linkingTool.archetypeLinkData = { text: "DimensionDimension" };
 
+        // Ensure links are only drawn forward from a starting node to a destination node, never the opposite!
+        diagram.toolManager.linkingTool.direction = go.LinkingTool.ForwardsOnly;
+
+        // Disable the magenta highlight that appears around target ports while dragging
+        diagram.toolManager.linkingTool.portTargeted = function (realnode, realport, tempnode, tempport, toend) { };
+        diagram.toolManager.relinkingTool.portTargeted = function (realnode, realport, tempnode, tempport, toend) { };
+
+        // Disable the magenta square attached to the mouse cursor while drawing a new link
+        diagram.toolManager.linkingTool.temporaryFromNode =
+            $(go.Node,
+                $(go.Shape, "Rectangle", { portId: "", fill: null, stroke: null, width: 1, height: 1 })
+            );
+        diagram.toolManager.linkingTool.temporaryToNode =
+            $(go.Node,
+                $(go.Shape, "Rectangle", { portId: "", fill: null, stroke: null, width: 1, height: 1 })
+            );
+
+        // Inject the VirtualizedLink template as the temporary dragging link
+        diagram.toolManager.linkingTool.temporaryLink =
+            $(VirtualizedLink,
+                { layerName: "Tool" },
+                $(go.Shape, { isPanelMain: true, stroke: "#4a90e2", strokeWidth: 2 })
+            );
+
+        const baseLinkingToolActivate = diagram.toolManager.linkingTool.doActivate;
+        diagram.toolManager.linkingTool.doActivate = function () {
+            baseLinkingToolActivate.call(this);
+
+            if (this.originalFromPort && this.originalFromPort.portId === "TEMP_RIGHT") {
+                const node = this.originalFromNode;
+                const rowName = node._hoveredRowName;
+                const rowPort = node.findPort(rowName);
+                if (rowPort) {
+                    rowPort.fromLinkable = true; // Temporarily allow row to act as source for validation
+                    this._tempMadeFromLinkable = rowPort;
+
+                    this.originalFromPort = rowPort;
+                    if (this.temporaryLink) {
+                        this.temporaryLink.fromNode = node;
+                        this.temporaryLink.fromPortId = rowName;
+                        this.temporaryLink.invalidateRoute();
+                    }
+                }
+                const ra = node.findObject("ROAMING_RIGHT");
+                const la = node.findObject("ROAMING_LEFT");
+                if (ra) ra.visible = false;
+                if (la) la.visible = false;
+            } else if (this.originalFromPort && this.originalFromPort.portId === "TEMP_LEFT") {
+                const node = this.originalFromNode;
+                const rowName = node._hoveredRowName;
+                const rowPort = node.findPort(rowName);
+                if (rowPort) {
+                    rowPort.fromLinkable = true;
+                    this._tempMadeFromLinkable = rowPort;
+
+                    this.originalFromPort = rowPort;
+                    if (this.temporaryLink) {
+                        this.temporaryLink.fromNode = node;
+                        this.temporaryLink.fromPortId = rowName;
+                        this.temporaryLink.invalidateRoute();
+                    }
+                }
+                const ra = node.findObject("ROAMING_RIGHT");
+                const la = node.findObject("ROAMING_LEFT");
+                if (ra) ra.visible = false;
+                if (la) la.visible = false;
+            } else if (this.originalFromPort && this.originalFromPort.type === go.Panel.TableRow) {
+                // Drag started directly from the row text/body
+                if (this.temporaryLink) {
+                    this.temporaryLink.invalidateRoute();
+                }
+
+                const node = this.originalFromNode;
+                const ra = node.findObject("ROAMING_RIGHT");
+                const la = node.findObject("ROAMING_LEFT");
+                if (ra) ra.visible = false;
+                if (la) la.visible = false;
+            }
+        };
+
+        const baseLinkingToolDeactivate = diagram.toolManager.linkingTool.doDeactivate;
+        diagram.toolManager.linkingTool.doDeactivate = function () {
+            if (this._tempMadeFromLinkable) {
+                this._tempMadeFromLinkable.fromLinkable = false;
+                this._tempMadeFromLinkable = null;
+            }
+            if (this._tempMadeToLinkable) {
+                // We leave toLinkable as true on TableRow natively, but cleaning up safely
+                this._tempMadeToLinkable = null;
+            }
+            baseLinkingToolDeactivate.call(this);
+        };
+
+        diagram.addDiagramListener("LinkDrawn", (e) => {
+            const link = e.subject;
+            const model = diagram.model;
+
+            if (link.data.fromPort === "TEMP_RIGHT" || link.data.fromPort === "TEMP_LEFT") {
+                const name = link.fromNode._hoveredRowName;
+                if (name) model.setFromPortIdForLinkData(link.data, name);
+            }
+            if (link.data.toPort === "TEMP_RIGHT" || link.data.toPort === "TEMP_LEFT") {
+                const name = link.toNode._hoveredRowName;
+                if (name) model.setToPortIdForLinkData(link.data, name);
+            }
+        });
+
+        diagram.addDiagramListener("LinkRelinked", (e) => {
+            const link = e.subject;
+            const model = diagram.model;
+            // For simplicity, we ignore relinking changing direction natively here, but standard port fixing applies.
+            if (link.data.fromPort === "TEMP_RIGHT" || link.data.fromPort === "TEMP_LEFT") {
+                const name = link.fromNode._hoveredRowName;
+                if (name) model.setFromPortIdForLinkData(link.data, name);
+            }
+            if (link.data.toPort === "TEMP_RIGHT" || link.data.toPort === "TEMP_LEFT") {
+                const name = link.toNode._hoveredRowName;
+                if (name) model.setToPortIdForLinkData(link.data, name);
+            }
+        });
 
     </script>
 

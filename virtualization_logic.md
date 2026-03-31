@@ -88,17 +88,29 @@ thumb.alignment = new go.Spot(0.5, percentage, 0, 0);
 ```
 - **Scenario Tackled**: If `capacity` is 10, but the list is 3000, `thumbH` evaluates very small. The `Math.max(15, ...)` lock guarantees the thumb never vanishes to 0px and remains clickable.
 
-### Dynamic Link Routing (Off-Screen Links)
-When nodes are scrolled off screen, the routing math intercepts the link:
+### Dynamic Link Routing & Auto-Alignment (`VirtualizedLink`)
+When drawing links or moving closely coupled nodes, standard GoJS bindings fall short for dynamic geometry. We implemented a custom `VirtualizedLink` class overriding `computePoints()`.
+
 ```javascript
-new go.Binding("fromSpot", "", (linkData, link) => {
-    // If exact port exists on screen, use Spot.Right / Spot.Left
-    // If the item exists mathematically but isn't on screen (virtualized):
-    if (idx < globalTop) return Spot.TopRight; // Route link to top of scroller explicitly 
-    return Spot.BottomRight; // Route link to bottom
-})
+class VirtualizedLink extends go.Link {
+    computePoints() {
+        // 1. Determine shortest physical distance dynamically
+        const isLeft = (fromNode.location.x > toNode.location.x);
+
+        // 2. Evaluate off-screen routing mathematically
+        // If the port exists off-screen, the link origin is snapped directly 
+        // to the top or bottom of the `SCROLLER` boundaries on the correct side.
+        
+        // 3. Inject calculated origins directly to bypass infinite layout loops
+        if (!this.fromSpot.equals(fSpot)) this.fromSpot = fSpot;
+        this.fromEndSegmentLength = isLeft ? 0 : 10; // Eliminate stub for left-drawn links
+        
+        return super.computePoints();
+    }
+}
 ```
-- **The Gap Elimination**: Off-screen links naturally cause an awkward straight line crossing the table margin. The `fromEndSegmentLength` binding overrides to `0` dynamically if the target port isn't physically in the bounds, creating the illusion of the link curving directly into the header or footer boundary.
+- **The Gap Elimination**: Off-screen links naturally cause an awkward straight line crossing the table margin. The logic evaluates `fromEndSegmentLength` locally, assigning `0` if the link originates from the left or if it routes over the top/bottom boundary, creating the illusion of the link curving directly into the header or footer boundary.
+- **Auto-Flop Alignment**: Because it evaluates raw `center.X` geometry on every render tick, dragging a node completely to the other side of its target causes the links to instantly switch walls (Right -> Left), ensuring paths never awkwardly clip through the middle of the nodes.
 
 ---
 
@@ -112,3 +124,32 @@ const globalNodeState = new Map(); // nodeKey -> { fullItems: [], activeFilters:
 ```
 - Every time a node generates, it dumps its true list and filter state into the map isolated by `node.key`.
 - Toggling the filter simply flips a bit in `activeFilters.add(name)` in the memory map. Following a transaction, it forces a partial render of only the `visibleItems` bindings in the viewport without needing to evaluate the 3,000 unseen rows.
+
+---
+
+## 6. Interactive Linking, Ports, & Layers
+
+To maintain a clean UI without compromising on high-density data mapping functionality, the standard static node ports have been upgraded.
+
+### Roaming Hover Ports 
+Instead of rendering ports on every single row (which bloats DOM operations and triggers layout shifts on hover), we define exactly two node-level ports: `ROAMING_LEFT` and `ROAMING_RIGHT`.
+- `mouseEnter` on a `TableRow` intercepts the vertical Y-coordinate and dynamically moves the node's two roaming arrows to sit identically flush with that exact row.
+- **Link Overrides (`LinkingTool.doActivate`)**: If a user clicks `TEMP_RIGHT` (the arrow), the diagram intercepts the click, instantly hides the arrows, and transfers the drawing origin logically to the `rowName` port underneath. This ensures the temporary drawing line emits physically from the row edge, not from the floating arrow hit-box.
+
+### Direct Row Linking
+Users can bypass the arrows entirely by clicking and dragging directly on the `TableRow` text. `LinkingTool.doActivate` checks where the click originated globally:
+```javascript
+const isLeftHalf = pt.x < bounds.centerX;
+this.temporaryLink.fromSpot = isLeftHalf ? go.Spot.Left : go.Spot.Right;
+```
+This enables seamless omni-directional link routing dynamically based on physical click halves. Additionally, `diagram.toolManager.linkingTool.direction = go.LinkingTool.ForwardsOnly;` is strictly enforced to prevent confusing "backwards" links from Destinations to Sources.
+
+### Foreground Selection Hoisting
+When dealing with dense meshes of links, clicking a node triggers a custom `selectionChanged` event:
+```javascript
+node.layerName = node.isSelected ? "Foreground" : "";
+node.findLinksConnected().each(link => {
+    link.layerName = isSelected ? "Foreground" : "";
+});
+```
+This forces the selected node and its entire ecosystem of connected wires to securely render above all other UI elements natively until unselected.
