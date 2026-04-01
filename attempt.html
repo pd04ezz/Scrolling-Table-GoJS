@@ -233,7 +233,7 @@
                             {
                                 name: "SCROLLER",
                                 desiredSize: new go.Size(250, 300),
-                                minSize: new go.Size(NaN, 200), // temporary, will override dynamically
+                                minSize: new go.Size(250, 200), // temporary, will override dynamically
                                 "TABLE.defaultAlignment": go.Spot.TopLeft
                             },
                             new go.Binding("desiredSize", "size", (s, obj) => {
@@ -1170,7 +1170,7 @@
                 const minRows = Math.min(8, total);
 
                 const minHeight = (minRows - 1) * rowh + 40;
-                scroller.minSize = new go.Size(NaN, minHeight);
+                scroller.minSize = new go.Size(250, minHeight);
             });
 
             // DEFERRED: Re-measure after GoJS fully renders buttons and rows
@@ -1220,7 +1220,7 @@
 
                     scroller.maxSize = new go.Size(Infinity, Math.max(exactMax, minScrollerH));
                     scroller.desiredSize = new go.Size(250, Math.min(exactH, exactMax));
-                    scroller.minSize = new go.Size(NaN, Math.min(fitH, Math.min(8, count) * rowh));
+                    scroller.minSize = new go.Size(250, Math.min(fitH, Math.min(8, count) * rowh));
                     node.ensureBounds();
 
                     if (scroller._updateScrollBar) scroller._updateScrollBar();
@@ -1256,7 +1256,7 @@
                 const total = node.data.fullItems ? node.data.fullItems.length : 0;
                 const minRows = Math.min(8, total);
 
-                obj.minSize = new go.Size(NaN, (minRows - 1) * rowh + 40);
+                obj.minSize = new go.Size(250, (minRows - 1) * rowh + 40);
 
                 // 1. FORCE STRICT SNAPPING on the final result + CAP to content
                 const currentH = obj.actualBounds.height;
