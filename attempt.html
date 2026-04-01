@@ -424,7 +424,13 @@
 
                                             // Attribute Name
                                             $(go.TextBlock,
-                                                { font: "14px sans-serif", stroke: "#333", margin: new go.Margin(0, 0, 0, 2) },
+                                                { 
+                                                    font: "14px sans-serif", stroke: "#333", margin: new go.Margin(0, 0, 0, 2),
+                                                    maxLines: 1, overflow: go.TextBlock.OverflowEllipsis
+                                                },
+                                                new go.Binding("width", "desiredSize", (size) => {
+                                                    return Math.max(10, size.width - 115); // dynamically track SCROLLER's exact width
+                                                }).ofObject("SCROLLER"),
                                                 new go.Binding("text", "name"))
                                         )
                                     )
@@ -1347,11 +1353,18 @@
             alert("State exported to browser console!\nCheck console for details.");
         }
 
+        const productsItems = generateAttributes("products", 3000);
+        productsItems.unshift({
+            name: "A_Very_Long_Attribute_Name_That_Exceeds_The_Default_Node_Width_Of_250_Pixels_To_Test_Wrapping_Behavior",
+            type: "string",
+            filterActive: false
+        });
+
         const nodeDataArray = [
 
             {
                 key: "Products",
-                fullItems: generateAttributes("products", 3000),
+                fullItems: productsItems,
                 visibleItems: [],
                 startIndex: 0,
                 loc: "0 0"
